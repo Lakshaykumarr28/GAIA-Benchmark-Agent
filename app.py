@@ -72,7 +72,7 @@ class BasicAgent:
             response = self.agent.run(question)
 
             print(
-                f"Agent generated response: "
+                f"Final Answer: "
                 f"{str(response)[:100]}"
             )
 
