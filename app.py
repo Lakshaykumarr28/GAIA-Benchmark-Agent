@@ -4,20 +4,87 @@ import requests
 import inspect
 import pandas as pd
 
+from smolagents import CodeAgent, InferenceClientModel
+from tools import (
+    image_describe_tool,
+    web_search_tool,
+    read_csv_tool,
+    read_excel_tool,
+    read_parquet_tool,
+    dataframe_query_tool,
+    dataframe_column_stats_tool,
+    speech_to_text_tool,
+    read_file_tool,
+    youtube_transcript_tool,
+    extract_youtube_video_id_tool
+)
+
 # (Keep Constants as is)
 # --- Constants ---
 DEFAULT_API_URL = "https://agents-course-unit4-scoring.hf.space"
 
 # --- Basic Agent Definition ---
 # ----- THIS IS WERE YOU CAN BUILD WHAT YOU WANT ------
+
+
+
+model = InferenceClientModel(
+    model="Qwen/Qwen2.5-72B-Instruct"
+)
+
+tools = [
+    image_describe_tool,
+    web_search_tool,
+    read_csv_tool,
+    read_excel_tool,
+    read_parquet_tool,
+    dataframe_query_tool,
+    dataframe_column_stats_tool,
+    speech_to_text_tool,
+    read_file_tool,
+    youtube_transcript_tool,
+    extract_youtube_video_id_tool
+]
+
+
+
+
 class BasicAgent:
-    def __init__(self):
+
+    def __init__(self, tools):
+
+        self.agent = CodeAgent(
+            tools=tools,
+            model=model
+        )
+
         print("BasicAgent initialized.")
+
     def __call__(self, question: str) -> str:
-        print(f"Agent received question (first 50 chars): {question[:50]}...")
-        fixed_answer = "This is a default answer."
-        print(f"Agent returning fixed answer: {fixed_answer}")
-        return fixed_answer
+
+        print(
+            f"Agent received question: "
+            f"{question[:50]}..."
+        )
+
+        try:
+
+            response = self.agent.run(question)
+
+            print(
+                f"Agent generated response: "
+                f"{str(response)[:100]}"
+            )
+
+            return str(response)
+
+        except Exception as e:
+
+            error_message = f"Agent Error: {str(e)}"
+
+            print(error_message)
+
+            return error_message
 
 def run_and_submit_all( profile: gr.OAuthProfile | None):
     """
