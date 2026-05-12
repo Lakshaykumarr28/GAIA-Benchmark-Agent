@@ -1,2 +1,16 @@
 gradio
 requests
+smolagents
+transformers
+torch
+pillow
+pandas
+openpyxl
+pyarrow
+duckdb
+youtube-transcript-api
+beautifulsoup4
+requests
+faster-whisper
+sentencepiece
+accelerate
