@@ -29,7 +29,8 @@ DEFAULT_API_URL = "https://agents-course-unit4-scoring.hf.space"
 
 
 model = InferenceClientModel(
-    model="Qwen/Qwen2.5-72B-Instruct"
+    model="Qwen/Qwen2.5-72B-Instruct",
+    token=HF_token
 )
 
 tools = [
