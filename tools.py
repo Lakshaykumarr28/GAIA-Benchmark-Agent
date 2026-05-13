@@ -1,468 +1,280 @@
-
-from smolagents import tool
-
-import os
-import io
-import requests
-import pandas as pd
-import duckdb
-
+from smolagents import Tool
+from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
+from qwen_vl_utils import process_vision_info
 from PIL import Image
-from bs4 import BeautifulSoup
+import torch
 
-from transformers import pipeline
-
-from youtube_transcript_api import YouTubeTranscriptApi
-
-from faster_whisper import WhisperModel
+from smolagents import LiteLLMModel
 
 
-# =========================================================
-# GLOBAL MODEL LOADERS
-# =========================================================
-
-# ---------------------------
-# IMAGE CAPTIONING MODEL
-# ---------------------------
-
-image_captioner = pipeline(
-    "image-to-text",
-    model="Salesforce/blip-image-captioning-base"
-)
-
-# ---------------------------
-# SPEECH TO TEXT MODEL
-# ---------------------------
-
-whisper_model = WhisperModel(
-    "base",
-    device="cpu",
-    compute_type="int8"
-)
-
-# =========================================================
-# IMAGE DESCRIPTION TOOL
-# =========================================================
-
-@tool
-def image_describe_tool(image_path: str) -> str:
+def check_reasoning(final_answer, agent_memory):
     """
-    Describes an image using BLIP image captioning model.
-
-    Args:
-        image_path: Path to image file.
-
-    Returns:
-        Generated image description.
+    Validates whether the agent reasoning and final answer
+    correctly solve the task.
     """
 
-    try:
-        image = Image.open(image_path)
+    model_name = "qwen2.5:14b"
 
-        result = image_captioner(image)
+    reasoning_model = LiteLLMModel(
+        model_id=f"ollama_chat/{model_name}",
+        temperature=0.1
+    )
 
-        caption = result[0]["generated_text"]
+    prompt = f"""
+You are a strict evaluator for an AI agent.
 
-        return f"Image Description: {caption}"
+Below are the agent reasoning steps:
 
-    except Exception as e:
-        return f"Error processing image: {str(e)}"
+{agent_memory.get_succinct_steps()}
 
+-----------------------------------
 
-# =========================================================
-# WEB SEARCH TOOL
-# =========================================================
+FINAL ANSWER:
+{final_answer}
 
-@tool
-def web_search_tool(query: str) -> str:
-    """
-    Performs a basic web search using DuckDuckGo HTML search.
+Your task:
+1. Verify whether the reasoning process is logically correct
+2. Verify whether the final answer correctly solves the task
+3. Detect hallucinations or unsupported assumptions
+4. Detect incomplete reasoning
+5. Check whether the final answer contradicts the reasoning
 
-    Args:
-        query: Search query.
+Evaluation Rules:
+- Be strict
+- Only PASS if confidence > 90%
+- FAIL if reasoning is weak, incomplete, or incorrect
 
-    Returns:
-        Top search results summary.
-    """
+Output Format:
+1. Reasons for PASS/FAIL
+2. Final Decision: PASS or FAIL
+"""
 
-    try:
-        headers = {
-            "User-Agent": "Mozilla/5.0"
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "text": prompt
+                }
+            ]
         }
+    ]
 
-        url = f"https://html.duckduckgo.com/html/?q={query}"
+    output = reasoning_model(messages).content
 
-        response = requests.get(url, headers=headers)
+    print("\n===== REASONING CHECK =====\n")
+    print(output)
 
-        soup = BeautifulSoup(response.text, "html.parser")
-
-        results = soup.find_all("a", class_="result__a")
-
-        output = []
-
-        for idx, result in enumerate(results[:5]):
-
-            title = result.get_text()
-            link = result.get("href")
-
-            output.append(
-                f"{idx+1}. {title}\nURL: {link}\n"
-            )
-
-        if not output:
-            return "No search results found."
-
-        return "\n".join(output)
-
-    except Exception as e:
-        return f"Search Error: {str(e)}"
-
-
-# =========================================================
-# CSV READER TOOL
-# =========================================================
-
-@tool
-def read_csv_tool(file_path: str) -> str:
-    """
-    Reads CSV file and returns basic information.
-
-    Args:
-        file_path: Path to CSV file.
-
-    Returns:
-        Summary of CSV file.
-    """
-
-    try:
-        df = pd.read_csv(file_path)
-
-        info = f"""
-CSV FILE SUMMARY
-
-Rows: {df.shape[0]}
-Columns: {df.shape[1]}
-
-Column Names:
-{list(df.columns)}
-
-First 5 Rows:
-{df.head().to_string()}
-"""
-
-        return info
-
-    except Exception as e:
-        return f"CSV Read Error: {str(e)}"
-
-
-# =========================================================
-# EXCEL READER TOOL
-# =========================================================
-
-@tool
-def read_excel_tool(file_path: str) -> str:
-    """
-    Reads Excel file and returns sheet information.
-
-    Args:
-        file_path: Path to Excel file.
-
-    Returns:
-        Excel summary.
-    """
-
-    try:
-        excel_file = pd.ExcelFile(file_path)
-
-        sheets = excel_file.sheet_names
-
-        output = [f"Available Sheets: {sheets}\n"]
-
-        for sheet in sheets:
-
-            df = pd.read_excel(file_path, sheet_name=sheet)
-
-            output.append(
-                f"""
-Sheet: {sheet}
-
-Rows: {df.shape[0]}
-Columns: {df.shape[1]}
-
-Columns:
-{list(df.columns)}
-
-Preview:
-{df.head().to_string()}
-"""
-            )
-
-        return "\n".join(output)
-
-    except Exception as e:
-        return f"Excel Read Error: {str(e)}"
-
-
-# =========================================================
-# PARQUET READER TOOL
-# =========================================================
-
-@tool
-def read_parquet_tool(file_path: str) -> str:
-    """
-    Reads parquet file and returns summary.
-
-    Args:
-        file_path: Path to parquet file.
-
-    Returns:
-        Parquet summary.
-    """
-
-    try:
-        df = pd.read_parquet(file_path)
-
-        return f"""
-PARQUET FILE SUMMARY
-
-Rows: {df.shape[0]}
-Columns: {df.shape[1]}
-
-Columns:
-{list(df.columns)}
-
-Preview:
-{df.head().to_string()}
-"""
-
-    except Exception as e:
-        return f"Parquet Read Error: {str(e)}"
-
-
-# =========================================================
-# DATAFRAME QUERY TOOL
-# =========================================================
-
-@tool
-def dataframe_query_tool(file_path: str, query: str) -> str:
-    """
-    Query CSV/Excel/Parquet files using SQL.
-
-    Supported:
-    - CSV
-    - Excel
-    - Parquet
-
-    Args:
-        file_path: Data file path.
-        query: SQL query.
-
-    Example:
-        SELECT * FROM data LIMIT 5
-
-    Returns:
-        Query result.
-    """
-
-    try:
-
-        extension = file_path.split(".")[-1]
-
-        if extension == "csv":
-            df = pd.read_csv(file_path)
-
-        elif extension in ["xlsx", "xls"]:
-            df = pd.read_excel(file_path)
-
-        elif extension == "parquet":
-            df = pd.read_parquet(file_path)
-
-        else:
-            return "Unsupported file format."
-
-        con = duckdb.connect()
-
-        con.register("data", df)
-
-        result = con.execute(query).fetchdf()
-
-        return result.to_string()
-
-    except Exception as e:
-        return f"Query Error: {str(e)}"
-
-
-# =========================================================
-# DATAFRAME COLUMN ANALYSIS TOOL
-# =========================================================
-
-@tool
-def dataframe_column_stats_tool(file_path: str, column_name: str) -> str:
-    """
-    Generates statistics for a column.
-
-    Args:
-        file_path: Path to data file.
-        column_name: Column name.
-
-    Returns:
-        Statistical summary.
-    """
-
-    try:
-
-        extension = file_path.split(".")[-1]
-
-        if extension == "csv":
-            df = pd.read_csv(file_path)
-
-        elif extension in ["xlsx", "xls"]:
-            df = pd.read_excel(file_path)
-
-        elif extension == "parquet":
-            df = pd.read_parquet(file_path)
-
-        else:
-            return "Unsupported format."
-
-        if column_name not in df.columns:
-            return "Column not found."
-
-        stats = df[column_name].describe()
-
-        return stats.to_string()
-
-    except Exception as e:
-        return f"Stats Error: {str(e)}"
-
-
-# =========================================================
-# SPEECH TO TEXT TOOL
-# =========================================================
-
-@tool
-def speech_to_text_tool(audio_path: str) -> str:
-    """
-    Converts speech audio to text using Whisper.
-
-    Args:
-        audio_path: Path to audio file.
-
-    Returns:
-        Transcribed text.
-    """
-
-    try:
-
-        segments, info = whisper_model.transcribe(audio_path)
-
-        transcription = ""
-
-        for segment in segments:
-            transcription += segment.text + " "
-
-        return transcription.strip()
-
-    except Exception as e:
-        return f"Transcription Error: {str(e)}"
-
-
-# =========================================================
-# GENERIC FILE READER TOOL
-# =========================================================
-
-@tool
-def read_file_tool(file_path: str) -> str:
-    """
-    Reads generic text files.
-
-    Supported:
-    - txt
-    - md
-    - py
-    - json
-    - csv
-    - log
-
-    Args:
-        file_path: File path.
-
-    Returns:
-        File contents.
-    """
-
-    try:
-
-        with open(file_path, "r", encoding="utf-8") as f:
-
-            content = f.read()
-
-        return content[:15000]
-
-    except Exception as e:
-        return f"File Read Error: {str(e)}"
-
-
-# =========================================================
-# YOUTUBE TRANSCRIPT TOOL
-# =========================================================
-
-@tool
-def youtube_transcript_tool(video_id: str) -> str:
-    """
-    Fetches YouTube video transcript.
-
-    Args:
-        video_id: YouTube video ID.
-
-    Example:
-        dQw4w9WgXcQ
-
-    Returns:
-        Video transcript.
-    """
-
-    try:
-
-        transcript = YouTubeTranscriptApi.get_transcript(video_id)
-
-        full_text = " ".join(
-            [item["text"] for item in transcript]
+    if "FAIL" in output.upper():
+        raise Exception(
+            f"Reasoning Validation Failed:\n{output}"
         )
 
-        return full_text
-
-    except Exception as e:
-        return f"Transcript Error: {str(e)}"
+    return True
 
 
-# =========================================================
-# OPTIONAL: YOUTUBE URL PARSER TOOL
-# =========================================================
-
-@tool
-def extract_youtube_video_id_tool(url: str) -> str:
+def ensure_formatting(final_answer, agent_memory):
     """
-    Extracts YouTube video ID from URL.
-
-    Args:
-        url: Full YouTube URL.
-
-    Returns:
-        Video ID.
+    Ensures the final answer follows strict formatting rules.
     """
 
-    try:
+    model_name = "qwen2.5:7b"
 
-        if "v=" in url:
-            return url.split("v=")[1].split("&")[0]
+    formatting_model = LiteLLMModel(
+        model_id=f"ollama_chat/{model_name}",
+        flatten_messages_as_text=True,
+        temperature=0.0
+    )
 
-        elif "youtu.be/" in url:
-            return url.split("youtu.be/")[1]
+    prompt = f"""
+You are a strict formatting validator for benchmark tasks.
 
-        else:
-            return "Invalid YouTube URL"
+Agent Reasoning:
+{agent_memory.get_succinct_steps()}
 
-    except Exception as e:
-        return f"URL Parse Error: {str(e)}"
+-----------------------------------
+
+FINAL ANSWER:
+{final_answer}
+
+Your task:
+Check whether the FINAL ANSWER strictly follows
+benchmark formatting requirements.
+
+Formatting Rules:
+1. Return ONLY the requested answer
+2. No explanations
+3. No markdown
+4. No bullet points
+5. No brackets unless requested
+6. Numbers:
+   - no commas
+   - no units unless specified
+   - Arabic numerals only
+7. Strings:
+   - lowercase when appropriate
+   - no articles
+   - no abbreviations unless requested
+8. Lists:
+   - comma separated only
+   - no brackets []
+9. OCR text must preserve exact spelling if required
+10. Remove unnecessary whitespace
+
+Evaluation:
+- PASS only if perfectly formatted
+- FAIL if any formatting issue exists
+
+Output Format:
+1. Reasons for PASS/FAIL
+2. Final Decision: PASS or FAIL
+"""
+
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "text": prompt
+                }
+            ]
+        }
+    ]
+
+    output = formatting_model(messages).content
+
+    print("\n===== FORMAT CHECK =====\n")
+    print(output)
+
+    if "FAIL" in output.upper():
+        raise Exception(
+            f"Formatting Validation Failed:\n{output}"
+        )
+
+    return True
+
+
+class ImageDescriptionTool(Tool):
+    name = "image_description_tool"
+    description = (
+        "Loads an image and generates a highly detailed description "
+        "including objects, scene understanding, OCR text, layout, "
+        "colors, emotions, activities, and contextual reasoning."
+    )
+
+    inputs = {
+        "image_path": {
+            "type": "string",
+            "description": "Path to the image file"
+        }
+    }
+
+    output_type = "string"
+
+    def __init__(self):
+        super().__init__()
+
+        print("Loading Qwen2.5-VL-7B-Instruct...")
+
+        self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+            "Qwen/Qwen2.5-VL-7B-Instruct",
+            torch_dtype=torch.float16,
+            device_map="auto"
+        )
+
+        self.processor = AutoProcessor.from_pretrained(
+            "Qwen/Qwen2.5-VL-7B-Instruct"
+        )
+
+        print("Model loaded successfully.")
+
+    def forward(self, image_path: str) -> str:
+
+        image = Image.open(image_path).convert("RGB")
+
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "image": image,
+                    },
+                    {
+                        "type": "text",
+                        "text": """
+Describe this image in extreme detail.
+
+Your response should include:
+1. Overall scene summary
+2. Objects and entities present
+3. Human appearance and activities
+4. Clothing and accessories
+5. Facial expressions and emotions
+6. Background details
+7. Colors and lighting
+8. Spatial relationships
+9. Visible text/OCR
+10. Possible context or story
+11. Camera angle and composition
+12. Art style or realism
+13. Environmental conditions
+14. Important fine-grained details
+
+Be exhaustive and precise.
+"""
+                    }
+                ]
+            }
+        ]
+
+        text = self.processor.apply_chat_template(
+            messages,
+            tokenize=False,
+            add_generation_prompt=True
+        )
+
+        image_inputs, video_inputs = process_vision_info(messages)
+
+        inputs = self.processor(
+            text=[text],
+            images=image_inputs,
+            videos=video_inputs,
+            padding=True,
+            return_tensors="pt"
+        )
+
+        inputs = inputs.to(self.model.device)
+
+        generated_ids = self.model.generate(
+            **inputs,
+            max_new_tokens=1024,
+            temperature=0.3,
+            do_sample=True
+        )
+
+        generated_ids_trimmed = [
+            out_ids[len(in_ids):]
+            for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
+        ]
+
+        output_text = self.processor.batch_decode(
+            generated_ids_trimmed,
+            skip_special_tokens=True,
+            clean_up_tokenization_spaces=False
+        )
+
+        return output_text[0]
+
+
+# Example usage
+if __name__ == "__main__":
+
+    tool = ImageDescriptionTool()
+
+    result = tool.forward("sample_image.jpg")
+
+    print("\n===== IMAGE DESCRIPTION =====\n")
+    print(result)
