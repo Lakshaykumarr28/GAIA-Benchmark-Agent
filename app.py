@@ -10,6 +10,8 @@ import gradio as gr
 import requests
 import pandas as pd
 
+from smolagents import LiteLLMModel
+
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -104,7 +106,7 @@ def _download_task_file(task_id: str) -> str:
                 ext = val
                 break
 
-    TEXT_EXTS = {".csv", ".txt", ".json", ".tsv", ".md", ".xml", ".html", ".py"}
+    TEXT_EXTS = {".csv", ".txt", ".json", ".tsv", ".md", ".xml", ".html"}
     if ext in TEXT_EXTS:
         try:
             return r.content.decode("utf-8")
@@ -334,7 +336,13 @@ SPORTS STATS:
   search_web with specific year+stat+player, then visit Baseball Reference / Sports Reference.
 
 ACADEMIC PAPERS:
-  search_web for title/authors, visit_webpage the paper URL, follow reference links."""
+  search_web for title/authors, visit_webpage the paper URL, follow reference links.
+  
+VERY IMPORTANT:
+After solving, ALWAYS call final_answer with ONLY the exact final answer.
+Never stop without calling final_answer.
+  
+"""
 
 
 # =============================================================================
@@ -351,9 +359,16 @@ class BasicAgent:
         if not hf_token:
             raise EnvironmentError("HF_TOKEN secret is not set. Add it in Space Settings → Variables and secrets.")
 
-        model = InferenceClientModel(
-            model_id="Qwen/Qwen2.5-72B-Instruct",
-            token=hf_token,
+        # model = InferenceClientModel(
+        #     model_id="Qwen/Qwen2.5-72B-Instruct",
+        #     token=hf_token,
+        # )
+
+        model = LiteLLMModel(
+            model_id="openai/Qwen/Qwen2.5-72B-Instruct",
+            api_key=hf_token,
+            max_tokens=4096,
+            temperature=0.1,
         )
 
         @tool
@@ -452,6 +467,7 @@ class BasicAgent:
                 "string", "requests", "tempfile", "base64", "io",
                 "PIL", "openpyxl", "subprocess", "statistics",
             ],
+            planning_interval=3,
         )
         print("BasicAgent initialized successfully.")
 
@@ -476,6 +492,13 @@ class BasicAgent:
         try:
             full_prompt = f"{SYSTEM_PROMPT}\n\n{'='*60}\n\n{question}{reversed_hint}"
             raw = self.agent.run(full_prompt, reset=True)
+
+            if raw is None:
+                return ""
+
+            if hasattr(raw, "content"):
+                raw = raw.content
+
             answer = self._clean(str(raw))
             print(f"Answer: {answer!r}")
             return answer
@@ -484,22 +507,26 @@ class BasicAgent:
             traceback.print_exc()
             return ""
 
+    # @staticmethod
+    # def _clean(raw: str) -> str:
+    #     s = raw.strip()
+    #     if s.startswith("```") and s.endswith("```"):
+    #         inner = s[3:-3].strip()
+    #         first_line, _, rest = inner.partition("\n")
+    #         s = rest.strip() if first_line.replace("-", "").isalpha() else inner
+    #     s = re.sub(
+    #         r"^\s*(the\s+)?(final\s+)?(answer\s+(is|:)|result\s*:|value\s*:)\s*",
+    #         "", s, flags=re.IGNORECASE,
+    #     ).strip()
+    #     for q in ('"', "'"):
+    #         if s.startswith(q) and s.endswith(q) and len(s) > 1:
+    #             s = s[1:-1].strip()
+    #             break
+    #     return s
+    
     @staticmethod
     def _clean(raw: str) -> str:
-        s = raw.strip()
-        if s.startswith("```") and s.endswith("```"):
-            inner = s[3:-3].strip()
-            first_line, _, rest = inner.partition("\n")
-            s = rest.strip() if first_line.replace("-", "").isalpha() else inner
-        s = re.sub(
-            r"^\s*(the\s+)?(final\s+)?(answer\s+(is|:)|result\s*:|value\s*:)\s*",
-            "", s, flags=re.IGNORECASE,
-        ).strip()
-        for q in ('"', "'"):
-            if s.startswith(q) and s.endswith(q) and len(s) > 1:
-                s = s[1:-1].strip()
-                break
-        return s
+        return raw.strip().strip('"').strip("'")
 
 
 # =============================================================================
