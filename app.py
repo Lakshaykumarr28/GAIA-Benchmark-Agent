@@ -364,11 +364,16 @@ class BasicAgent:
         #     token=hf_token,
         # )
 
-        model = LiteLLMModel(
-            model_id="openai/Qwen/Qwen2.5-72B-Instruct",
-            api_key=hf_token,
-            max_tokens=4096,
-            temperature=0.1,
+        # model = LiteLLMModel(
+        #     model_id="openai/Qwen/Qwen2.5-72B-Instruct",
+        #     api_key=hf_token,
+        #     max_tokens=4096,
+        #     temperature=0.1,
+        # )
+
+        model = InferenceClientModel(
+            model_id="meta-llama/Llama-3.3-70B-Instruct",
+            token=hf_token,
         )
 
         @tool
@@ -505,7 +510,7 @@ class BasicAgent:
         except Exception as e:
             print(f"[Agent error] {e}")
             traceback.print_exc()
-            return ""
+            return f"ERROR: {str(e)}"
 
     # @staticmethod
     # def _clean(raw: str) -> str:
