@@ -372,7 +372,8 @@ class BasicAgent:
         # )
 
         model = InferenceClientModel(
-            model_id="meta-llama/Llama-3.3-70B-Instruct",
+            # model_id="meta-llama/Llama-3.3-70B-Instruct",
+            model_id="Qwen/Qwen2.5-7B-Instruct",
             token=hf_token,
         )
 
