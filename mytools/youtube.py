@@ -1,47 +1,44 @@
 from smolagents import Tool
-from youtube_transcript_api import YouTubeTranscriptApi
 
 
 class YouTubeTranscriptTool(Tool):
     """
-    Fetches the full text transcript of a YouTube video.
-
-    Uses youtube-transcript-api — no browser, cookies, or authentication needed.
-    Prefers English captions and falls back to any available language.
-    Supports full URLs (youtube.com/watch?v=, youtu.be/) and bare video IDs.
+    Fetches the transcript of a YouTube video given its URL or video ID.
     """
 
     name = "get_youtube_transcript"
     description = (
-        "Fetches the complete text transcript of a YouTube video. "
-        "Accepts a full YouTube URL or a bare video ID. "
-        "Use this immediately whenever a question contains a YouTube link."
+        "Fetches the full transcript of a YouTube video. "
+        "Pass the full YouTube URL (e.g. https://www.youtube.com/watch?v=...) "
+        "or just the video ID. Returns the transcript as plain text."
     )
     inputs = {
-        "url": {
+        "url_or_id": {
             "type": "string",
-            "description": "Full YouTube URL (e.g. https://www.youtube.com/watch?v=...) or bare video ID.",
+            "description": "YouTube video URL or video ID string.",
         }
     }
     output_type = "string"
 
-    def forward(self, url: str) -> str:
-        # Extract video ID from common YouTube URL formats
-        video_id = url
-        if "v=" in url:
-            video_id = url.split("v=")[-1].split("&")[0]
-        elif "youtu.be/" in url:
-            video_id = url.split("youtu.be/")[-1].split("?")[0]
-
+    def forward(self, url_or_id: str) -> str:
         try:
-            # Prefer English; fall back to any available language
-            try:
-                entries = YouTubeTranscriptApi.get_transcript(video_id, languages=["en"])
-            except Exception:
-                entries = YouTubeTranscriptApi.get_transcript(video_id)
-            return " ".join(e["text"] for e in entries)
-        except Exception as exc:
-            return (
-                f"[YouTubeTranscriptTool] Could not get transcript for '{video_id}': {exc}. "
-                "Try searching the web for a summary of this video instead."
+            from youtube_transcript_api import YouTubeTranscriptApi
+
+            # Extract video ID from URL if needed
+            video_id = url_or_id.strip()
+            if "youtube.com/watch" in video_id:
+                import urllib.parse
+                parsed = urllib.parse.urlparse(video_id)
+                params = urllib.parse.parse_qs(parsed.query)
+                video_id = params.get("v", [video_id])[0]
+            elif "youtu.be/" in video_id:
+                video_id = video_id.split("youtu.be/")[-1].split("?")[0]
+
+            transcript_list = YouTubeTranscriptApi.get_transcript(
+                video_id, languages=["en", "en-US", "en-GB"]
             )
+            text = " ".join(entry["text"] for entry in transcript_list)
+            return text.strip()
+
+        except Exception as exc:
+            return f"[YouTubeTranscriptTool ERROR] {exc}"

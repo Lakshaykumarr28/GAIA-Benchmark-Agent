@@ -1,27 +1,22 @@
 # Core agent framework
-smolagents>=1.1.0
+smolagents>=1.14.0
 
-# LLM routing (HF Inference via LiteLLM)
-litellm>=1.40.0
+# HF model client
+huggingface_hub>=0.23.0
 
 # Web tools
 duckduckgo-search>=6.0.0
-ddgs
 markdownify>=0.12.0
 requests>=2.31.0
 
 # YouTube transcript extraction
 youtube-transcript-api>=0.6.2
 
-# Audio transcription
-openai-whisper>=20231117
+# Audio transcription (CPU-friendly, no ffmpeg needed for most formats)
+faster-whisper>=1.0.0
 
-# Audio processing (required by Whisper)
-librosa>=0.10.0
-torch>=2.0.0
-torchvision
-
-# Data handling
+# Excel / spreadsheet reading
+openpyxl>=3.1.0
 pandas>=2.0.0
 numpy>=1.24.0
 
@@ -29,7 +24,7 @@ numpy>=1.24.0
 pillow>=10.0.0
 
 # UI
-gradio
+gradio>=4.0.0
 
 # Environment
 python-dotenv>=1.0.0

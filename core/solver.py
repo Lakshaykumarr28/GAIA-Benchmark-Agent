@@ -1,13 +1,15 @@
 import re
 import traceback
 
-from smolagents import CodeAgent, LiteLLMModel
+from smolagents import CodeAgent, InferenceClientModel
 from smolagents import DuckDuckGoSearchTool, VisitWebpageTool
 
 from core.prompts import ANSWER_RULES
 from mytools.download import DownloadTaskFileTool
 from mytools.audio import AudioTranscriptionTool
 from mytools.youtube import YouTubeTranscriptTool
+from mytools.image import ImageDescriptionTool
+from mytools.excel import ExcelReadTool
 
 
 class GAIASolver:
@@ -15,15 +17,12 @@ class GAIASolver:
     Wraps a smolagents CodeAgent to solve GAIA benchmark tasks.
 
     Each task dict is expected to contain:
-        task_id   : str  — UUID used to fetch attached files from the API
-        question  : str  — The natural language question to answer
-        file_name : str  — Optional filename hint (may be empty string)
-
-    The solver injects task context (ID + file hint) into the prompt so the
-    agent can call download_task_file when an attached file is present.
+        task_id   : str — UUID used to fetch attached files from the API
+        question  : str — The natural language question to answer
+        file_name : str — Optional filename hint (may be empty string)
     """
 
-    def __init__(self, model: LiteLLMModel):
+    def __init__(self, model: InferenceClientModel):
         self.agent = CodeAgent(
             tools=[
                 DuckDuckGoSearchTool(),
@@ -31,14 +30,16 @@ class GAIASolver:
                 YouTubeTranscriptTool(),
                 AudioTranscriptionTool(),
                 DownloadTaskFileTool(),
+                ImageDescriptionTool(),
+                ExcelReadTool(),
             ],
             model=model,
-            # Allow enough steps for deep research chains (web + file + verify)
             max_steps=15,
             verbosity_level=1,
             additional_authorized_imports=[
                 "pandas", "numpy", "re", "math", "datetime",
                 "collections", "json", "csv", "itertools", "string",
+                "openpyxl", "PIL", "pathlib", "os",
             ],
         )
 
@@ -46,20 +47,27 @@ class GAIASolver:
         """Solve one GAIA task and return a cleaned answer string."""
         task_id = task.get("task_id", "")
         question = task.get("question", "")
-        file_name = task.get("file_name", "")
+        file_name = task.get("file_name", "") or ""
 
-        # Build structured prompt — rules first, then task context
-        lines = [ANSWER_RULES, "---", f"Task ID: {task_id}"]
+        # Determine file type hint for the agent
+        file_hint = ""
         if file_name:
-            lines.append(
-                f"This task has an attached file: '{file_name}'. "
+            ext = file_name.rsplit(".", 1)[-1].lower() if "." in file_name else ""
+            type_hints = {
+                "mp3": "audio", "wav": "audio", "m4a": "audio", "flac": "audio",
+                "png": "image", "jpg": "image", "jpeg": "image", "gif": "image",
+                "csv": "spreadsheet/text", "xlsx": "Excel spreadsheet", "xls": "Excel spreadsheet",
+                "txt": "text", "json": "JSON data", "pdf": "PDF document",
+            }
+            ftype = type_hints.get(ext, "file")
+            file_hint = (
+                f"\nThis task has an attached {ftype}: '{file_name}'.\n"
                 f"Call download_task_file(task_id='{task_id}') to access it BEFORE answering."
             )
-        lines.append(f"\nQuestion: {question}")
-        prompt = "\n".join(lines)
+
+        prompt = f"{ANSWER_RULES}\n---\nTask ID: {task_id}{file_hint}\n\nQuestion: {question}"
 
         try:
-            # reset=True prevents context leaking between consecutive tasks
             raw = self.agent.run(prompt, reset=True)
             return self._clean(str(raw))
         except Exception as exc:
@@ -70,19 +78,18 @@ class GAIASolver:
     @staticmethod
     def _clean(raw: str) -> str:
         """
-        Minimal post-processing of LLM output for exact-match scoring.
-        Only removes patterns that are unambiguously wrong (preamble, fences).
-        Conservative by design — avoids corrupting valid answers.
+        Minimal post-processing for exact-match scoring.
+        Conservative — avoids corrupting valid answers.
         """
         s = raw.strip()
 
-        # Remove markdown code fences wrapping the entire answer
+        # Strip markdown code fences
         if s.startswith("```") and s.endswith("```"):
             inner = s[3:-3].strip()
             first_line, _, rest = inner.partition("\n")
             s = rest.strip() if first_line.isalpha() else inner
 
-        # Remove "The answer is:" / "Final answer:" type prefixes
+        # Strip common preamble patterns
         s = re.sub(
             r"^\s*(the\s+)?(final\s+)?(answer\s+(is|:)|result\s*:|value\s*:)\s*",
             "",
@@ -90,7 +97,7 @@ class GAIASolver:
             flags=re.IGNORECASE,
         ).strip()
 
-        # Remove symmetric surrounding quotes
+        # Strip symmetric surrounding quotes
         for q in ('"', "'"):
             if s.startswith(q) and s.endswith(q) and len(s) > 1:
                 s = s[1:-1].strip()
