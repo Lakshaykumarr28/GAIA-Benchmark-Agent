@@ -373,7 +373,7 @@ class BasicAgent:
 
         
         model = LiteLLMModel(
-            model_id="gemini/gemini-1.5-flash",
+            model_id="gemini/gemini-1.5-flash-latest",
             api_key=os.getenv("GEMINI_API_KEY"),
             temperature=0.1,
             max_tokens=4096,
