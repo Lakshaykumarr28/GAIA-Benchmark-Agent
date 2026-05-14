@@ -1,264 +1,152 @@
+"""
+GAIA Benchmark Solver — Hugging Face AI Agents Course (Unit 4)
+==============================================================
+Entry point: Gradio UI + benchmark runner.
+
+Architecture:
+    core/model.py   — LLM backend (Anthropic Claude Haiku via LiteLLM)
+    core/solver.py  — GAIASolver: smolagents CodeAgent orchestration
+    core/prompts.py — Exact-match answer formatting rules
+    mytools/download.py — GAIA attached file downloader
+    mytools/audio.py   — Whisper-based audio transcription
+    mytools/youtube.py — YouTube transcript extraction
+
+Setup (HF Space secrets): 
+    HF_TOKEN                     
+"""
+
 import os
-import gradio as gr
+
 import requests
-import inspect
 import pandas as pd
+import gradio as gr
+from dotenv import load_dotenv
 
-from smolagents import CodeAgent, InferenceClientModel
-from tools import (
-    image_describe_tool,
-    web_search_tool,
-    read_csv_tool,
-    read_excel_tool,
-    read_parquet_tool,
-    dataframe_query_tool,
-    dataframe_column_stats_tool,
-    speech_to_text_tool,
-    read_file_tool,
-    youtube_transcript_tool,
-    extract_youtube_video_id_tool
-)
+from core.model import build_model
+from core.solver import GAIASolver
 
-# (Keep Constants as is)
-# --- Constants ---
-DEFAULT_API_URL = "https://agents-course-unit4-scoring.hf.space"
+# ---------------------------------------------------------------------------
+# Environment
+# ---------------------------------------------------------------------------
 
-# --- Basic Agent Definition ---
-# ----- THIS IS WERE YOU CAN BUILD WHAT YOU WANT ------
+load_dotenv()
 
+GAIA_API_BASE = "https://agents-course-unit4-scoring.hf.space"
 
+# ---------------------------------------------------------------------------
+# API helpers
+# ---------------------------------------------------------------------------
 
-model = InferenceClientModel(
-    model="Qwen/Qwen2.5-72B-Instruct",
-    token=HF_token
-)
-
-tools = [
-    image_describe_tool,
-    web_search_tool,
-    read_csv_tool,
-    read_excel_tool,
-    read_parquet_tool,
-    dataframe_query_tool,
-    dataframe_column_stats_tool,
-    speech_to_text_tool,
-    read_file_tool,
-    youtube_transcript_tool,
-    extract_youtube_video_id_tool
-]
+def fetch_questions() -> list[dict]:
+    """Fetch all 20 GAIA Level 1 questions from the scoring API."""
+    r = requests.get(f"{GAIA_API_BASE}/questions", timeout=30)
+    r.raise_for_status()
+    return r.json()
 
 
+def submit_answers(username: str, space_id: str, answers: list[dict]) -> dict:
+    """Submit solved answers to the scoring API and return the result."""
+    payload = {
+        "username": username,
+        "agent_code": f"https://huggingface.co/spaces/{space_id}/tree/main",
+        "answers": answers,
+    }
+    r = requests.post(f"{GAIA_API_BASE}/submit", json=payload, timeout=60)
+    r.raise_for_status()
+    return r.json()
 
 
-class BasicAgent:
+# ---------------------------------------------------------------------------
+# Benchmark runner
+# ---------------------------------------------------------------------------
 
-    def __init__(self, tools):
-
-        self.agent = CodeAgent(
-            tools=tools,
-            model=model
-        )
-
-        print("BasicAgent initialized.")
-
-    def __call__(self, question: str) -> str:
-
-        print(
-            f"Agent received question: "
-            f"{question[:50]}..."
-        )
-
-        try:
-
-            response = self.agent.run(question)
-
-            print(
-                f"Final Answer: "
-                f"{str(response)[:100]}"
-            )
-
-            return str(response)
-
-        except Exception as e:
-
-            error_message = f"Agent Error: {str(e)}"
-
-            print(error_message)
-
-            return error_message
-
-def run_and_submit_all( profile: gr.OAuthProfile | None):
+def run_benchmark(profile: gr.OAuthProfile | None) -> tuple[str, pd.DataFrame | None]:
     """
-    Fetches all questions, runs the BasicAgent on them, submits all answers,
-    and displays the results.
+    Full benchmark pipeline invoked by the Gradio button:
+      1. Validate HF login
+      2. Build model + solver
+      3. Fetch questions from GAIA API
+      4. Solve each question with the agent
+      5. Submit answers and return score + results table
     """
-    # --- Determine HF Space Runtime URL and Repo URL ---
-    space_id = os.getenv("SPACE_ID") # Get the SPACE_ID for sending link to the code
+    if profile is None:
+        return "⚠️  Please log in with your Hugging Face account first.", None
 
-    if profile:
-        username= f"{profile.username}"
-        print(f"User logged in: {username}")
-    else:
-        print("User not logged in.")
-        return "Please Login to Hugging Face with the button.", None
+    username = profile.username
+    space_id = os.getenv("SPACE_ID", "")
+    print(f"Starting benchmark for user: {username}")
 
-    api_url = DEFAULT_API_URL
-    questions_url = f"{api_url}/questions"
-    submit_url = f"{api_url}/submit"
-
-    # 1. Instantiate Agent ( modify this part to create your agent)
+    # Build model and solver
     try:
-        agent = BasicAgent(tools = tools)
-    except Exception as e:
-        print(f"Error instantiating agent: {e}")
-        return f"Error initializing agent: {e}", None
-    # In the case of an app running as a hugging Face space, this link points toward your codebase ( usefull for others so please keep it public)
-    agent_code = f"https://huggingface.co/spaces/{space_id}/tree/main"
-    print(agent_code)
+        model = build_model()
+        solver = GAIASolver(model)
+    except EnvironmentError as exc:
+        return f"❌ Configuration error: {exc}", None
 
-    # 2. Fetch Questions
-    print(f"Fetching questions from: {questions_url}")
+    # Fetch questions
     try:
-        response = requests.get(questions_url, timeout=15)
-        response.raise_for_status()
-        questions_data = response.json()
-        if not questions_data:
-             print("Fetched questions list is empty.")
-             return "Fetched questions list is empty or invalid format.", None
-        print(f"Fetched {len(questions_data)} questions.")
-    except requests.exceptions.RequestException as e:
-        print(f"Error fetching questions: {e}")
-        return f"Error fetching questions: {e}", None
-    except requests.exceptions.JSONDecodeError as e:
-         print(f"Error decoding JSON response from questions endpoint: {e}")
-         print(f"Response text: {response.text[:500]}")
-         return f"Error decoding server response for questions: {e}", None
-    except Exception as e:
-        print(f"An unexpected error occurred fetching questions: {e}")
-        return f"An unexpected error occurred fetching questions: {e}", None
+        questions = fetch_questions()
+        print(f"Fetched {len(questions)} questions.")
+    except Exception as exc:
+        return f"❌ Failed to fetch questions: {exc}", None
 
-    # 3. Run your Agent
-    results_log = []
-    answers_payload = []
-    print(f"Running agent on {len(questions_data)} questions...")
-    for item in questions_data:
-        task_id = item.get("task_id")
-        question_text = item.get("question")
-        if not task_id or question_text is None:
-            print(f"Skipping item with missing task_id or question: {item}")
-            continue
-        try:
-            submitted_answer = agent(question_text)
-            answers_payload.append({"task_id": task_id, "submitted_answer": submitted_answer})
-            results_log.append({"Task ID": task_id, "Question": question_text, "Submitted Answer": submitted_answer})
-        except Exception as e:
-             print(f"Error running agent on task {task_id}: {e}")
-             results_log.append({"Task ID": task_id, "Question": question_text, "Submitted Answer": f"AGENT ERROR: {e}"})
+    # Solve all questions
+    submissions: list[dict] = []
+    rows: list[dict] = []
 
-    if not answers_payload:
-        print("Agent did not produce any answers to submit.")
-        return "Agent did not produce any answers to submit.", pd.DataFrame(results_log)
+    for i, task in enumerate(questions, start=1):
+        tid = task.get("task_id", f"task_{i}")
+        preview = task.get("question", "")[:80]
+        print(f"\n[{i:02d}/{len(questions)}] {tid}: {preview}...")
 
-    # 4. Prepare Submission 
-    submission_data = {"username": username.strip(), "agent_code": agent_code, "answers": answers_payload}
-    status_update = f"Agent finished. Submitting {len(answers_payload)} answers for user '{username}'..."
-    print(status_update)
+        answer = solver.solve(task)
+        print(f"  → Answer: {answer!r}")
 
-    # 5. Submit
-    print(f"Submitting {len(answers_payload)} answers to: {submit_url}")
+        submissions.append({"task_id": tid, "submitted_answer": answer})
+        rows.append({
+            "Task ID": tid,
+            "Question": task.get("question", "")[:120],
+            "File": task.get("file_name", "") or "—",
+            "Answer": answer or "(empty)",
+        })
+
+    # Submit to scoring API
     try:
-        response = requests.post(submit_url, json=submission_data, timeout=60)
-        response.raise_for_status()
-        result_data = response.json()
-        final_status = (
-            f"Submission Successful!\n"
-            f"User: {result_data.get('username')}\n"
-            f"Overall Score: {result_data.get('score', 'N/A')}% "
-            f"({result_data.get('correct_count', '?')}/{result_data.get('total_attempted', '?')} correct)\n"
-            f"Message: {result_data.get('message', 'No message received.')}"
-        )
-        print("Submission successful.")
-        results_df = pd.DataFrame(results_log)
-        return final_status, results_df
-    except requests.exceptions.HTTPError as e:
-        error_detail = f"Server responded with status {e.response.status_code}."
-        try:
-            error_json = e.response.json()
-            error_detail += f" Detail: {error_json.get('detail', e.response.text)}"
-        except requests.exceptions.JSONDecodeError:
-            error_detail += f" Response: {e.response.text[:500]}"
-        status_message = f"Submission Failed: {error_detail}"
-        print(status_message)
-        results_df = pd.DataFrame(results_log)
-        return status_message, results_df
-    except requests.exceptions.Timeout:
-        status_message = "Submission Failed: The request timed out."
-        print(status_message)
-        results_df = pd.DataFrame(results_log)
-        return status_message, results_df
-    except requests.exceptions.RequestException as e:
-        status_message = f"Submission Failed: Network error - {e}"
-        print(status_message)
-        results_df = pd.DataFrame(results_log)
-        return status_message, results_df
-    except Exception as e:
-        status_message = f"An unexpected error occurred during submission: {e}"
-        print(status_message)
-        results_df = pd.DataFrame(results_log)
-        return status_message, results_df
+        result = submit_answers(username, space_id, submissions)
+        score = result.get("score", "N/A")
+        message = result.get("message", "")
+        status = f"✅ Score: {score}%\n{message}"
+    except Exception as exc:
+        status = f"⚠️  Submission failed: {exc}"
+
+    return status, pd.DataFrame(rows)
 
 
-# --- Build Gradio Interface using Blocks ---
-with gr.Blocks() as demo:
-    gr.Markdown("# Basic Agent Evaluation Runner")
+# ---------------------------------------------------------------------------
+# Gradio UI
+# ---------------------------------------------------------------------------
+
+with gr.Blocks(theme=gr.themes.Soft(), title="GAIA Benchmark Solver") as demo:
     gr.Markdown(
         """
-        **Instructions:**
+        # 🏅 GAIA Benchmark Solver
+        **Hugging Face AI Agents Course — Unit 4**
 
-        1.  Please clone this space, then modify the code to define your agent's logic, the tools, the necessary packages, etc ...
-        2.  Log in to your Hugging Face account using the button below. This uses your HF username for submission.
-        3.  Click 'Run Evaluation & Submit All Answers' to fetch questions, run your agent, submit answers, and see the score.
+        **Before running:** make sure `ANTHROPIC_API_KEY` is set in your Space secrets.
 
-        ---
-        **Disclaimers:**
-        Once clicking on the "submit button, it can take quite some time ( this is the time for the agent to go through all the questions).
-        This space provides a basic setup and is intentionally sub-optimal to encourage you to develop your own, more robust solution. For instance for the delay process of the submit button, a solution could be to cache the answers and submit in a seperate action or even to answer the questions in async.
+        1. Log in with your Hugging Face account below
+        2. Click **Run Benchmark**
+        3. Wait ~20–30 min for all 20 questions to be solved and submitted
         """
     )
 
     gr.LoginButton()
+    btn = gr.Button("🚀 Run Benchmark", variant="primary", size="lg")
+    status_box = gr.Textbox(label="Result", lines=4)
+    table = gr.DataFrame(label="Answers", wrap=True)
 
-    run_button = gr.Button("Run Evaluation & Submit All Answers")
+    btn.click(fn=run_benchmark, outputs=[status_box, table])
 
-    status_output = gr.Textbox(label="Run Status / Submission Result", lines=5, interactive=False)
-    # Removed max_rows=10 from DataFrame constructor
-    results_table = gr.DataFrame(label="Questions and Agent Answers", wrap=True)
-
-    run_button.click(
-        fn=run_and_submit_all,
-        outputs=[status_output, results_table]
-    )
 
 if __name__ == "__main__":
-    print("\n" + "-"*30 + " App Starting " + "-"*30)
-    # Check for SPACE_HOST and SPACE_ID at startup for information
-    space_host_startup = os.getenv("SPACE_HOST")
-    space_id_startup = os.getenv("SPACE_ID") # Get SPACE_ID at startup
-
-    if space_host_startup:
-        print(f"✅ SPACE_HOST found: {space_host_startup}")
-        print(f"   Runtime URL should be: https://{space_host_startup}.hf.space")
-    else:
-        print("ℹ️  SPACE_HOST environment variable not found (running locally?).")
-
-    if space_id_startup: # Print repo URLs if SPACE_ID is found
-        print(f"✅ SPACE_ID found: {space_id_startup}")
-        print(f"   Repo URL: https://huggingface.co/spaces/{space_id_startup}")
-        print(f"   Repo Tree URL: https://huggingface.co/spaces/{space_id_startup}/tree/main")
-    else:
-        print("ℹ️  SPACE_ID environment variable not found (running locally?). Repo URL cannot be determined.")
-
-    print("-"*(60 + len(" App Starting ")) + "\n")
-
-    print("Launching Gradio Interface for Basic Agent Evaluation...")
-    demo.launch(debug=True, share=False)
+    demo.launch()
