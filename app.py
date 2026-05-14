@@ -26,7 +26,7 @@ DEFAULT_API_URL = "https://agents-course-unit4-scoring.hf.space"
 # TOOL IMPLEMENTATIONS  (plain functions, wrapped via @tool inside __init__)
 # =============================================================================
 
-def _web_search(query: str, max_results: int = 8) -> str:
+def _web_search(query: str, max_results: int = 3) -> str:
     """DuckDuckGo web search."""
     try:
         from duckduckgo_search import DDGS
@@ -50,7 +50,7 @@ def _visit_webpage(url: str) -> str:
         r = _req.get(url, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
         r.raise_for_status()
         text = markdownify(r.text)
-        return text[:12000]
+        return text[:4000]
     except Exception as e:
         return f"[visit_webpage error] {e}"
 
@@ -71,7 +71,7 @@ def _wikipedia_search(query: str) -> str:
         pr = _req.get("https://en.wikipedia.org/w/api.php", params=page_params, timeout=15)
         pages = pr.json().get("query", {}).get("pages", {})
         text = next(iter(pages.values())).get("extract", "")
-        return f"Wikipedia: {title}\nURL: https://en.wikipedia.org/wiki/{title.replace(' ','_')}\n\n{text[:6000]}"
+        return f"Wikipedia: {title}\nURL: https://en.wikipedia.org/wiki/{title.replace(' ','_')}\n\n{text[:3000]}"
     except Exception as e:
         return f"[wikipedia_search error] {e}"
 
@@ -354,6 +354,7 @@ class BasicAgent:
 
     def __init__(self):
         from smolagents import CodeAgent, InferenceClientModel, tool
+        from smolagents import ToolCallingAgent
 
         hf_token = os.getenv("HF_TOKEN")
         if not hf_token:
@@ -376,7 +377,7 @@ class BasicAgent:
             model_id="gemini/gemini-2.5-flash",
             api_key=os.getenv("GEMINI_API_KEY"),
             temperature=0.1,
-            max_tokens=4096,
+            max_tokens=1024,
         )
 
         # model = InferenceClientModel(
@@ -465,23 +466,25 @@ class BasicAgent:
             """
             return _youtube_transcript(url_or_id)
 
-        self.agent = CodeAgent(
+        self.agent = ToolCallingAgent(
             tools=[
                 search_web, visit_webpage, wikipedia_search,
                 download_file, read_file,
                 execute_python, execute_python_file,
-                transcribe_audio, analyze_image, youtube_transcript,
+                transcribe_audio, 
+                # analyze_image, 
+                youtube_transcript,
             ],
             model=model,
-            max_steps=20,
-            verbosity_level=1,
+            max_steps=5,
+            verbosity_level=0,
             additional_authorized_imports=[
                 "os", "re", "json", "math", "datetime", "pathlib",
                 "pandas", "numpy", "collections", "csv", "itertools",
                 "string", "requests", "tempfile", "base64", "io",
                 "PIL", "openpyxl", "subprocess", "statistics",
             ],
-            planning_interval=3,
+            # planning_interval=3,
         )
         print("BasicAgent initialized successfully.")
 
