@@ -1,30 +1,13 @@
-# Core agent framework
+gradio
+requests
 smolagents>=1.14.0
-
-# HF model client
 huggingface_hub>=0.23.0
-
-# Web tools
 duckduckgo-search>=6.0.0
 markdownify>=0.12.0
-requests>=2.31.0
-
-# YouTube transcript extraction
 youtube-transcript-api>=0.6.2
-
-# Audio transcription (CPU-friendly, no ffmpeg needed for most formats)
 faster-whisper>=1.0.0
-
-# Excel / spreadsheet reading
 openpyxl>=3.1.0
 pandas>=2.0.0
 numpy>=1.24.0
-
-# Image handling
 pillow>=10.0.0
-
-# UI
-gradio>=4.0.0
-
-# Environment
 python-dotenv>=1.0.0
