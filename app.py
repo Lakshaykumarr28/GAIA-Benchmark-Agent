@@ -478,12 +478,12 @@ class BasicAgent:
             model=model,
             max_steps=5,
             verbosity_level=0,
-            additional_authorized_imports=[
-                "os", "re", "json", "math", "datetime", "pathlib",
-                "pandas", "numpy", "collections", "csv", "itertools",
-                "string", "requests", "tempfile", "base64", "io",
-                "PIL", "openpyxl", "subprocess", "statistics",
-            ],
+            # additional_authorized_imports=[
+            #     "os", "re", "json", "math", "datetime", "pathlib",
+            #     "pandas", "numpy", "collections", "csv", "itertools",
+            #     "string", "requests", "tempfile", "base64", "io",
+            #     "PIL", "openpyxl", "subprocess", "statistics",
+            # ],
             # planning_interval=3,
         )
         print("BasicAgent initialized successfully.")
