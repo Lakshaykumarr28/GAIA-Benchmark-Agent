@@ -365,7 +365,7 @@ class BasicAgent:
         # )
 
         model = LiteLLMModel(
-            model_id="openai/Qwen/Qwen2.5-72B-Instruct",
+            model_id="huggingface/Qwen/Qwen2.5-7B-Instruct",
             api_key=hf_token,
             max_tokens=4096,
             temperature=0.1,
