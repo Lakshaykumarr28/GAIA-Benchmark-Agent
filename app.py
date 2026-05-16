@@ -11,6 +11,8 @@ import requests
 import pandas as pd
 
 from smolagents import LiteLLMModel
+from faster_whisper import WhisperModel
+WHISPER_MODEL = WhisperModel("base", device="cpu", compute_type="int8")
 
 try:
     from dotenv import load_dotenv
@@ -50,7 +52,7 @@ def _visit_webpage(url: str) -> str:
         r = _req.get(url, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
         r.raise_for_status()
         text = markdownify(r.text)
-        return text[:4000]
+        return text[:1000]
     except Exception as e:
         return f"[visit_webpage error] {e}"
 
@@ -202,9 +204,8 @@ def _transcribe_audio(audio_path: str) -> str:
     if not os.path.exists(audio_path):
         return f"[transcribe_audio error] File not found: {audio_path}"
     try:
-        from faster_whisper import WhisperModel
-        model = WhisperModel("base", device="cpu", compute_type="int8")
-        segments, _ = model.transcribe(audio_path, beam_size=5)
+        
+        segments, _ = WHISPER_MODEL.transcribe(audio_path, beam_size=5)
         transcript = " ".join(seg.text.strip() for seg in segments)
         return transcript.strip() or "[Empty transcript]"
     except ImportError:
@@ -374,7 +375,7 @@ class BasicAgent:
 
         
         model = LiteLLMModel(
-            model_id="gemini/gemini-2.5-flash",
+            model_id="gemini/gemini-2.0-flash",
             api_key=os.getenv("GEMINI_API_KEY"),
             temperature=0.1,
             max_tokens=1024,
@@ -476,7 +477,7 @@ class BasicAgent:
                 youtube_transcript,
             ],
             model=model,
-            max_steps=5,
+            max_steps=2,
             verbosity_level=0,
             # additional_authorized_imports=[
             #     "os", "re", "json", "math", "datetime", "pathlib",
