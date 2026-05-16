@@ -10,7 +10,7 @@ import gradio as gr
 import requests
 import pandas as pd
 
-from smolagents import LiteLLMModel
+from smolagents import LiteLLMModel, TransformersModel
 from faster_whisper import WhisperModel
 WHISPER_MODEL = WhisperModel("base", device="cpu", compute_type="int8")
 
@@ -374,11 +374,18 @@ class BasicAgent:
         # )
 
         
-        model = LiteLLMModel(
-            model_id="gemini/gemini-2.0-flash",
-            api_key=os.getenv("GEMINI_API_KEY"),
+        # model = LiteLLMModel(
+        #     model_id="gemini/gemini-2.0-flash",
+        #     api_key=os.getenv("GEMINI_API_KEY"),
+        #     temperature=0.1,
+        #     max_tokens=1024,
+        # )
+
+        model = TransformersModel(
+            model_id="Qwen/Qwen2.5-3B-Instruct",
+            device_map="auto",
+            max_new_tokens=1024,
             temperature=0.1,
-            max_tokens=1024,
         )
 
         # model = InferenceClientModel(
