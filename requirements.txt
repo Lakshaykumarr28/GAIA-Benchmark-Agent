@@ -18,3 +18,6 @@ pytesseract
 Pillow
 gradio>=3.34.0
 gradio[oauth]>=3.34.0
+
+langchain-google-genai
+google-generativeai
