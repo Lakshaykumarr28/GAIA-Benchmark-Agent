@@ -435,46 +435,123 @@ with open("system_prompt.txt", "r", encoding="utf-8") as f:
 # System message
 sys_msg = SystemMessage(system_prompt)
 
-tools = [
-    calculator,
-    wiki_search,
-    web_search,
-    read_pdf,
-    read_excel,
-    read_csv,
-    read_word,
-    ocr_image,
-    speech_to_text,
-]
+# tools = [
+#     calculator,
+#     wiki_search,
+#     web_search,
+#     read_pdf,
+#     read_excel,
+#     read_csv,
+#     read_word,
+#     ocr_image,
+#     speech_to_text,
+# ]
+
+
+ALL_TOOLS = {
+    "calculator": calculator,
+    "wiki_search": wiki_search,
+    "web_search": web_search,
+    "read_pdf": read_pdf,
+    "read_excel": read_excel,
+    "read_csv": read_csv,
+    "read_word": read_word,
+    "ocr_image": ocr_image,
+    "speech_to_text": speech_to_text,
+}
+
+
+def get_tools(question: str):
+
+    q = question.lower()
+
+    selected_tools = []
+
+    # always useful
+    selected_tools.append(ALL_TOOLS["calculator"])
+
+    # web / factual questions
+    web_keywords = [
+        "who",
+        "when",
+        "where",
+        "latest",
+        "news",
+        "movie",
+        "president",
+        "capital",
+        "highest grossing",
+        "company",
+        "history",
+    ]
+
+    if any(k in q for k in web_keywords):
+        selected_tools.append(ALL_TOOLS["web_search"])
+        selected_tools.append(ALL_TOOLS["wiki_search"])
+
+    # pdf
+    if ".pdf" in q:
+        selected_tools.append(ALL_TOOLS["read_pdf"])
+
+    # excel
+    if ".xlsx" in q or ".xls" in q:
+        selected_tools.append(ALL_TOOLS["read_excel"])
+
+    # csv
+    if ".csv" in q:
+        selected_tools.append(ALL_TOOLS["read_csv"])
+
+    # word
+    if ".docx" in q:
+        selected_tools.append(ALL_TOOLS["read_word"])
+
+    # image / OCR
+    image_exts = [".png", ".jpg", ".jpeg"]
+
+    if any(ext in q for ext in image_exts):
+        selected_tools.append(ALL_TOOLS["ocr_image"])
+
+    # audio
+    audio_exts = [".mp3", ".wav", ".m4a", ".mp4"]
+
+    if any(ext in q for ext in audio_exts):
+        selected_tools.append(ALL_TOOLS["speech_to_text"])
+
+    return selected_tools
+
+
 # Build graph function
-def build_graph():
+def build_graph(question: str):
 
-
-    # llm = ChatOpenAI(model_name="gpt-5-nano", temperature=0)
+    tools = get_tools(question)
 
     llm = ChatGroq(
-        model="llama-3.3-70b-versatile",
-        max_tokens=128,
+        model="deepseek-r1-distill-llama-8b",
         temperature=0,
+        max_tokens=128,
         groq_api_key=GROQ_API_KEY
     )
 
+    chat_with_tools = llm.bind_tools(
+        tools,
+        parallel_tool_calls=False
+    )
 
-    # chat = ChatHuggingFace(llm=llm, verbose=True)
-    chat_with_tools = llm.bind_tools(tools)
-    
-    # Generate the AgentState and Agent graph
     class AgentState(TypedDict):
         messages: Annotated[list[AnyMessage], add_messages]
 
     def assistant(state: AgentState):
+
+        response = chat_with_tools.invoke(state["messages"])
+
         return {
-            "messages": [chat_with_tools.invoke(state["messages"])],
+            "messages": [response]
         }
-    ## The graph
+
     builder = StateGraph(AgentState)
-    # Define nodes: these do the work
+
     builder.add_node("assistant", assistant)
+
     builder.add_node(
         "tools",
         ToolNode(
@@ -482,15 +559,17 @@ def build_graph():
             handle_tool_errors=True
         )
     )
-    #  Define edges: these determine how the control flow moves
+
     builder.add_edge(START, "assistant")
+
     builder.add_conditional_edges(
         "assistant",
         tools_condition,
     )
+
     builder.add_edge("tools", "assistant")
-    agent = builder.compile()
-    return agent
+
+    return builder.compile()
 
 
 
@@ -586,7 +665,7 @@ def run_agent(question: str) -> str:
     Run agent with verbose debugging.
     """
 
-    graph = build_graph()
+    graph = build_graph(question)
 
     flag, question_processed = is_reversed_question(question)
 
@@ -609,7 +688,7 @@ def run_agent(question: str) -> str:
     for event in graph.stream(
         {"messages": messages},
         stream_mode="values",
-        config={"recursion_limit": 3}
+        config={"recursion_limit": 5}
     ):
 
         final_messages = event["messages"]
