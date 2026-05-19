@@ -526,7 +526,7 @@ def build_graph(question: str):
     tools = get_tools(question)
 
     llm = ChatGroq(
-        model="qwen/qwen3-8b",
+        model="qwen/qwen3-32b",
         temperature=0,
         max_tokens=128,
         groq_api_key=GROQ_API_KEY
