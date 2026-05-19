@@ -1,23 +1,73 @@
 python-dotenv>=1.0.0
 requests>=2.31.0
 
-langchain>=0.1.20
-langgraph>=0.0.40
-langchain-core>=0.1.50
+# LangChain / LangGraph
+langchain>=0.2.0
+langgraph>=0.2.0
+langchain-core>=0.2.0
+langchain-community>=0.2.0
+langchain-openai>=0.1.0
+langchain-google-genai>=1.0.0
+langchain-huggingface>=0.0.3
 
-langchain-community>=0.0.30
+# LLM Providers
+openai>=1.30.0
+google-generativeai>=0.5.0
+huggingface-hub>=0.23.0
+transformers>=4.41.0
+accelerate>=0.30.0
+sentence-transformers>=2.7.0
 
+# Search / Tools
 tavily-python>=0.3.0
+wikipedia>=1.4.0
 
-langchain-huggingface
-pypdf
-pandas
-openpyxl
-python-docx
-pytesseract
-Pillow
-gradio>=3.34.0
-gradio[oauth]>=3.34.0
+# Vector DB / Embeddings
+faiss-cpu>=1.8.0
+chromadb>=0.5.0
 
-langchain-google-genai
-google-generativeai
+# PDF / Documents
+pypdf>=4.2.0
+pymupdf>=1.24.0
+pdfplumber>=0.11.0
+python-docx>=1.1.0
+docx2txt>=0.8
+
+# Data Processing
+pandas>=2.2.0
+numpy>=1.26.0
+openpyxl>=3.1.0
+xlrd>=2.0.1
+tabulate>=0.9.0
+
+# OCR / Vision
+pytesseract>=0.3.10
+Pillow>=10.0.0
+opencv-python-headless>=4.9.0.80
+easyocr>=1.7.1
+
+# Web Scraping
+beautifulsoup4>=4.12.0
+lxml>=5.2.0
+html5lib>=1.1
+selenium>=4.21.0
+
+# APIs / Utilities
+httpx>=0.27.0
+aiohttp>=3.9.0
+tenacity>=8.2.0
+
+# UI
+gradio>=4.0.0
+gradio[oauth]>=4.0.0
+
+# Tokenization / NLP
+tiktoken>=0.7.0
+nltk>=3.8.1
+
+# Optional ML / Agent Utilities
+scikit-learn>=1.4.0
+scipy>=1.13.0
+
+# Environment
+typing-extensions>=4.11.0
