@@ -465,29 +465,29 @@ def get_tools(question: str):
 
     q = question.lower()
 
-    selected_tools = []
+    selected_tools = [ALL_TOOLS["web_search"], ALL_TOOLS["wiki_search"], ALL_TOOLS["calculator"]]
 
-    # always useful
-    selected_tools.append(ALL_TOOLS["calculator"])
+    # # always useful
+    # selected_tools.append(ALL_TOOLS["calculator"])
 
-    # web / factual questions
-    web_keywords = [
-        "who",
-        "when",
-        "where",
-        "latest",
-        "news",
-        "movie",
-        "president",
-        "capital",
-        "highest grossing",
-        "company",
-        "history",
-    ]
+    # # web / factual questions
+    # web_keywords = [
+    #     "who",
+    #     "when",
+    #     "where",
+    #     "latest",
+    #     "news",
+    #     "movie",
+    #     "president",
+    #     "capital",
+    #     "highest grossing",
+    #     "company",
+    #     "history",
+    # ]
 
-    if any(k in q for k in web_keywords):
-        selected_tools.append(ALL_TOOLS["web_search"])
-        selected_tools.append(ALL_TOOLS["wiki_search"])
+    # if any(k in q for k in web_keywords):
+    #     selected_tools.append(ALL_TOOLS["web_search"])
+    #     selected_tools.append(ALL_TOOLS["wiki_search"])
 
     # pdf
     if ".pdf" in q:
@@ -534,7 +534,8 @@ def build_graph(question: str):
 
     chat_with_tools = llm.bind_tools(
         tools,
-        parallel_tool_calls=False
+        parallel_tool_calls=False,
+        tool_choice="auto"
     )
 
     class AgentState(TypedDict):
