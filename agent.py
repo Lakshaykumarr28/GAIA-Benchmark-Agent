@@ -155,14 +155,53 @@ def build_graph():
     agent = builder.compile()
     return agent
 
+import re
+
 def extract_final_answer(messages):
+    """
+    Extract FINAL ANSWER robustly from LangGraph messages.
+    """
+
     for msg in reversed(messages):
-        if msg.type == "ai" and msg.content:
-            text = msg.content.strip()
-            if text.startswith("FINAL ANSWER:"):
-                return text.replace("FINAL ANSWER:", "").strip()
-            return text
-    return ""
+
+        # skip non-ai messages
+        if getattr(msg, "type", "") != "ai":
+            continue
+
+        content = getattr(msg, "content", "")
+
+        if not content:
+            continue
+
+        # handle list/dict content from some models
+        if isinstance(content, list):
+            content = " ".join(
+                str(x.get("text", x)) if isinstance(x, dict) else str(x)
+                for x in content
+            )
+
+        content = str(content).strip()
+
+        # strict FINAL ANSWER extraction
+        match = re.search(
+            r"FINAL ANSWER:\s*(.*)",
+            content,
+            re.IGNORECASE | re.DOTALL
+        )
+
+        if match:
+            answer = match.group(1).strip()
+
+            # remove markdown/code fences if model adds them
+            answer = re.sub(r"^```.*?\n", "", answer, flags=re.DOTALL)
+            answer = re.sub(r"```$", "", answer).strip()
+
+            # keep only first line for safety
+            answer = answer.splitlines()[0].strip()
+
+            return answer
+
+    return "unknown"
 
 def run_agent(question: str) -> str:
     """
