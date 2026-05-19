@@ -13,7 +13,7 @@ from langchain.agents import create_agent
 from langchain_core.tools import tool
 from typing import TypedDict, Annotated
 from langchain_groq import ChatGroq
-from langchain_community.tools.tavily_search import TavilySearchResults
+from langchain_tavily import TavilySearch
 from langchain_community.document_loaders import PyPDFLoader
 import pandas as pd
 from docx import Document
@@ -21,6 +21,11 @@ from dotenv import load_dotenv
 # OCR / Vision
 from PIL import Image
 import pytesseract
+import wikipedia
+from requests.exceptions import RequestException
+from json.decoder import JSONDecodeError
+import re
+import whisper
 
 load_dotenv()
 
@@ -28,76 +33,399 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY")
 HF_TOKEN = os.getenv("HF_TOKEN")
 
+tavily = TavilySearch(
+    # tavily_api_key=TAVILY_API_KEY,
+    max_results=3,
+    topic="general",
+)
+
+whisper_model = whisper.load_model("base")
+
 
 @tool
 def calculator(expression: str) -> str:
     """
     Evaluate a mathematical expression.
-    Example: "17 * 42"
+    ONLY for valid numeric mathematical calculations.
+
+    Examples:
+    - 17 * 42
+    - (25 + 3) / 7
+
+    DO NOT use for:
+    - words
+    - logic
+    - reasoning
+    - readability
+    - text operations
     """
     try:
         return str(eval(expression))
     except Exception as e:
         return f"Error: {e}"
 
-# @tool
-def wiki_search(query: str) -> str:
-    """Search Wikipedia for a query and return maximum 2 results.
-    
-    Args:
-        query: The search query."""
-    search_docs = WikipediaLoader(query=query, load_max_docs=2).load()
-    content = "\n\n---\n\n".join([f'Doc {i}: \n\n{doc.page_content[:500]}' for i,doc in enumerate(search_docs)])
-    return {"wiki_results": content}
 
-# @tool
+@tool
+def wiki_search(query: str) -> str:
+    """
+    Search Wikipedia safely and return summarized results.
+    """
+
+    try:
+        wikipedia.set_lang("en")
+
+        results = wikipedia.search(query, results=2)
+
+        if not results:
+            return "No Wikipedia results found."
+
+        docs = []
+
+        for title in results:
+
+            try:
+                page = wikipedia.page(title, auto_suggest=False)
+
+                docs.append(
+                    f"Title: {page.title}\n"
+                    f"Summary: {page.summary[:500]}"
+                )
+
+            except Exception:
+                continue
+
+        if not docs:
+            return "No readable Wikipedia pages found."
+
+        return "\n\n---\n\n".join(docs)
+
+    except JSONDecodeError:
+        return "Wikipedia API returned invalid response."
+
+    except RequestException as e:
+        return f"Wikipedia request failed: {str(e)}"
+
+    except Exception as e:
+        return f"Wikipedia search error: {str(e)}"
+
+@tool
 def web_search(query: str) -> str:
-    """Search Tavily for a query and return maximum 3 results.
-    
-    Args:
-        query: The search query."""
-    search_docs = TavilySearchResults(tavily_api_key=TAVILY_API_KEY, max_results=3).invoke(query)
-    formatted_search_docs = "\n\n---\n\n".join(
-        [
-            f'<Document source="{doc["title"]}" page="{doc["url"]}"/>\n{doc["content"]}\n</Document>'
-            for doc in search_docs
-        ])
-    return {"web_results": formatted_search_docs}
+    """
+    Search the web ONLY when external factual information is required.
+
+    USE THIS TOOL FOR:
+    - current events
+    - recent facts
+    - real people
+    - locations
+    - companies
+    - websites
+    - historical facts
+    - verifying uncertain information
+
+    DO NOT USE THIS TOOL FOR:
+    - math
+    - logic
+    - reversing text
+    - summarization
+    - rewriting
+    - simple reasoning
+    - extracting answers already present in the question
+    - general common knowledge
+
+    Input:
+        query: concise factual search query
+
+    Returns:
+        summarized web search results
+    """
+
+    try:
+
+        # prevent garbage searches
+        query = query.strip()
+
+        if len(query) < 3:
+            return "Invalid search query."
+
+        # prevent obvious unnecessary searches
+        blocked_patterns = [
+            "reverse text",
+            "reverse string",
+            "calculator",
+            "math",
+            "spell",
+            "translate",
+            "rewrite",
+        ]
+
+        lower_query = query.lower()
+
+        if any(p in lower_query for p in blocked_patterns):
+            return "Web search unnecessary for this query."
+
+        response = tavily.invoke(query)
+
+        # Tavily returns dict
+        results = response.get("results", [])
+
+        if not results:
+            return "No web results found."
+
+        formatted = []
+
+        for doc in results[:3]:
+
+            title = doc.get("title", "Unknown")
+            url = doc.get("url", "")
+            content = doc.get("content", "")[:1000]
+
+            formatted.append(
+                f"Title: {title}\n"
+                f"URL: {url}\n"
+                f"Content: {content}"
+            )
+
+        return "\n\n---\n\n".join(formatted)
+
+    except Exception as e:
+        return f"Web search error: {str(e)}"
 
 @tool
 def read_pdf(path: str) -> str:
-    """Extract text from a PDF file"""
-    loader = PyPDFLoader(path)
-    pages = loader.load()
-    return "\n".join(p.page_content for p in pages[:5])  # limit context
+    """
+    Read text from a LOCAL PDF file only.
+
+    USE ONLY FOR:
+    - extracting PDF contents
+    - reading uploaded PDF documents
+
+    DO NOT USE FOR:
+    - web search
+    - reasoning
+    - math
+    - summarization without a PDF path
+
+    Input:
+        path: local PDF file path ending with .pdf
+    """
+
+    try:
+
+        if not path.lower().endswith(".pdf"):
+            return "Error: file must be a PDF."
+
+        loader = PyPDFLoader(path)
+        pages = loader.load()
+
+        if not pages:
+            return "Error: empty PDF."
+
+        return "\n".join(
+            p.page_content for p in pages[:5]
+        )[:5000]
+
+    except Exception as e:
+        return f"PDF read error: {str(e)}"
 
 
 @tool
 def read_excel(path: str) -> str:
-    """Read an Excel file and summarize"""
-    df = pd.read_excel(path)
-    return df.head(10).to_string()
+    """
+    Read a LOCAL Excel file only.
+
+    USE ONLY FOR:
+    - .xlsx
+    - .xls files
+
+    DO NOT USE FOR:
+    - calculations without a file
+    - CSV files
+    - web tasks
+
+    Input:
+        local Excel file path
+    """
+
+    try:
+
+        if not path.lower().endswith((".xlsx", ".xls")):
+            return "Error: file must be Excel format."
+
+        df = pd.read_excel(path)
+
+        if df.empty:
+            return "Error: empty Excel file."
+
+        return df.head(10).to_string()[:5000]
+
+    except Exception as e:
+        return f"Excel read error: {str(e)}"
 
 
 @tool
 def read_csv(path: str) -> str:
-    """Read a CSV file"""
-    df = pd.read_csv(path)
-    return df.head(10).to_string()
+    """
+    Read a LOCAL CSV file only.
+
+    USE ONLY FOR:
+    - CSV data inspection
+    - reading tabular CSV data
+
+    DO NOT USE FOR:
+    - Excel files
+    - web search
+    - calculations without CSV input
+
+    Input:
+        local CSV file path
+    """
+
+    try:
+
+        if not path.lower().endswith(".csv"):
+            return "Error: file must be CSV format."
+
+        df = pd.read_csv(path)
+
+        if df.empty:
+            return "Error: empty CSV file."
+
+        return df.head(10).to_string()[:5000]
+
+    except Exception as e:
+        return f"CSV read error: {str(e)}"
 
 
 @tool
 def read_word(path: str) -> str:
-    """Read a Word (.docx) file"""
-    doc = Document(path)
-    return "\n".join(p.text for p in doc.paragraphs)
+    """
+    Read a LOCAL Word document only.
+
+    USE ONLY FOR:
+    - .docx document reading
+
+    DO NOT USE FOR:
+    - PDFs
+    - OCR
+    - web tasks
+
+    Input:
+        local .docx file path
+    """
+
+    try:
+
+        if not path.lower().endswith(".docx"):
+            return "Error: file must be .docx format."
+
+        doc = Document(path)
+
+        text = "\n".join(
+            p.text for p in doc.paragraphs
+        ).strip()
+
+        if not text:
+            return "Error: empty Word document."
+
+        return text[:5000]
+
+    except Exception as e:
+        return f"Word read error: {str(e)}"
 
 
 @tool
 def ocr_image(path: str) -> str:
-    """Extract text from an image using OCR"""
-    image = Image.open(path)
-    return pytesseract.image_to_string(image)
+    """
+    Extract text from a LOCAL image file using OCR.
+
+    USE ONLY FOR:
+    - images containing text
+    - OCR extraction
+
+    DO NOT USE FOR:
+    - PDFs
+    - reasoning
+    - image generation
+    - web search
+
+    Supported:
+    .png .jpg .jpeg
+
+    Input:
+        local image file path
+    """
+
+    try:
+
+        valid_ext = (".png", ".jpg", ".jpeg")
+
+        if not path.lower().endswith(valid_ext):
+            return "Error: unsupported image format."
+
+        image = Image.open(path)
+
+        text = pytesseract.image_to_string(image).strip()
+
+        if not text:
+            return "No text detected in image."
+
+        return text[:5000]
+
+    except Exception as e:
+        return f"OCR error: {str(e)}"
+    
+
+
+@tool
+def speech_to_text(path: str) -> str:
+    """
+    Convert LOCAL audio speech into text.
+
+    USE ONLY FOR:
+    - transcribing audio files
+    - speech recognition
+    - extracting spoken words
+
+    DO NOT USE FOR:
+    - normal text files
+    - OCR
+    - reasoning
+    - web search
+
+    Supported formats:
+    .mp3 .wav .m4a .mp4
+
+    Input:
+        local audio/video file path
+    """
+
+    try:
+
+        valid_ext = (
+            ".mp3",
+            ".wav",
+            ".m4a",
+            ".mp4"
+        )
+
+        if not path.lower().endswith(valid_ext):
+            return "Error: unsupported audio format."
+
+        if not os.path.exists(path):
+            return "Error: audio file not found."
+
+        result = whisper_model.transcribe(path)
+
+        text = result.get("text", "").strip()
+
+        if not text:
+            return "No speech detected."
+
+        return text[:5000]
+
+    except Exception as e:
+        return f"Speech-to-text error: {str(e)}"
 
 
 # load the system prompt from the file
@@ -116,6 +444,7 @@ tools = [
     read_csv,
     read_word,
     ocr_image,
+    speech_to_text,
 ]
 # Build graph function
 def build_graph():
@@ -124,7 +453,7 @@ def build_graph():
     # llm = ChatOpenAI(model_name="gpt-5-nano", temperature=0)
 
     llm = ChatGroq(
-        model="llama-3.1-8b-instant",
+        model="qwen/qwen3-32b",
         temperature=0,
         groq_api_key=GROQ_API_KEY
     )
@@ -132,6 +461,7 @@ def build_graph():
 
     # chat = ChatHuggingFace(llm=llm, verbose=True)
     chat_with_tools = llm.bind_tools(tools)
+    
     # Generate the AgentState and Agent graph
     class AgentState(TypedDict):
         messages: Annotated[list[AnyMessage], add_messages]
@@ -144,7 +474,13 @@ def build_graph():
     builder = StateGraph(AgentState)
     # Define nodes: these do the work
     builder.add_node("assistant", assistant)
-    builder.add_node("tools", ToolNode(tools))
+    builder.add_node(
+        "tools",
+        ToolNode(
+            tools,
+            handle_tool_errors=True
+        )
+    )
     #  Define edges: these determine how the control flow moves
     builder.add_edge(START, "assistant")
     builder.add_conditional_edges(
@@ -155,67 +491,171 @@ def build_graph():
     agent = builder.compile()
     return agent
 
-import re
+
 
 def extract_final_answer(messages):
-    """
-    Extract FINAL ANSWER robustly from LangGraph messages.
-    """
 
     for msg in reversed(messages):
 
-        # skip non-ai messages
         if getattr(msg, "type", "") != "ai":
             continue
 
-        content = getattr(msg, "content", "")
+        content = str(getattr(msg, "content", "")).strip()
 
         if not content:
             continue
 
-        # handle list/dict content from some models
-        if isinstance(content, list):
-            content = " ".join(
-                str(x.get("text", x)) if isinstance(x, dict) else str(x)
-                for x in content
-            )
-
-        content = str(content).strip()
-
-        # strict FINAL ANSWER extraction
+        # PRIMARY: FINAL ANSWER format
         match = re.search(
-            r"FINAL ANSWER:\s*(.*)",
+            r"FINAL ANSWER:\s*(.+)",
             content,
             re.IGNORECASE | re.DOTALL
         )
 
         if match:
-            answer = match.group(1).strip()
+            return match.group(1).strip().splitlines()[0]
 
-            # remove markdown/code fences if model adds them
-            answer = re.sub(r"^```.*?\n", "", answer, flags=re.DOTALL)
-            answer = re.sub(r"```$", "", answer).strip()
-
-            # keep only first line for safety
-            answer = answer.splitlines()[0].strip()
-
-            return answer
+        # FALLBACK:
+        # short direct answer from model
+        if len(content.split()) <= 10:
+            return content.strip()
 
     return "unknown"
 
+
+def is_reversed_question(text: str, threshold: float = 0.6):
+    """
+    Detect whether a sentence is likely reversed.
+
+    Returns:
+        (is_reversed: bool, corrected_text: str)
+    """
+
+    # common English words
+    common_words = {
+        "the", "is", "are", "if", "you", "can",
+        "what", "where", "when", "why", "how",
+        "question", "answer", "give", "read",
+        "this", "that", "and", "or", "to"
+    }
+
+    # tokenize original
+    words = re.findall(r"\b\w+\b", text.lower())
+
+    if not words:
+        return False, text
+
+    # tokenize reversed text
+    reversed_text = text[::-1]
+    reversed_words = re.findall(r"\b\w+\b", reversed_text.lower())
+
+    # score both
+    original_score = sum(w in common_words for w in words)
+    reversed_score = sum(w in common_words for w in reversed_words)
+
+    # normalize
+    original_ratio = original_score / max(len(words), 1)
+    reversed_ratio = reversed_score / max(len(reversed_words), 1)
+
+    if reversed_ratio > original_ratio and reversed_ratio >= threshold:
+        return True, reversed_text
+
+    return False, text
+
+# def run_agent(question: str) -> str:
+#     """
+#     Public API for the agent.
+#     Takes a question string and returns an answer string.
+#     """
+#     graph = build_graph()
+
+#     flag, question_processed = is_reversed_question(question)
+#     messages = [{"role": "system", "content": system_prompt},{"role": "user", "content": question_processed}]
+
+#     result = graph.invoke(
+#         {"messages": messages}
+#     )
+    
+#     final_answer = extract_final_answer(result["messages"])
+#     return final_answer
+
+
 def run_agent(question: str) -> str:
     """
-    Public API for the agent.
-    Takes a question string and returns an answer string.
+    Run agent with verbose debugging.
     """
-    graph = build_graph()
-    messages = [{"role": "system", "content": system_prompt},{"role": "user", "content": question}]
 
-    result = graph.invoke(
-        {"messages": messages}
-    )
-    
-    final_answer = extract_final_answer(result["messages"])
+    graph = build_graph()
+
+    flag, question_processed = is_reversed_question(question)
+
+    if flag:
+        print("\n[DEBUG] Reversed question detected")
+        print("[DEBUG] Corrected Question:")
+        print(question_processed)
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": question_processed},
+    ]
+
+    print("\n================ AGENT RUN ================\n")
+
+    final_messages = None
+
+    for event in graph.stream(
+        {"messages": messages},
+        stream_mode="values",
+        # config={"recursion_limit": 5}
+    ):
+
+        final_messages = event["messages"]
+
+        latest = final_messages[-1]
+
+        print(f"\n[{latest.type.upper()} MESSAGE]\n")
+
+        # AI message
+        if latest.type == "ai":
+
+            # tool calls
+            if hasattr(latest, "tool_calls") and latest.tool_calls:
+
+                print("Tool Calls:")
+
+                for tc in latest.tool_calls:
+                    print(f"  -> Tool: {tc['name']}")
+                    print(f"     Args: {tc['args']}")
+
+            # content
+            if latest.content:
+                print(latest.content)
+
+        # Tool outputs
+        elif latest.type == "tool":
+
+            print(f"Tool Name: {latest.name}")
+            print("\nTool Output:\n")
+
+            content = str(latest.content)
+
+            # truncate huge outputs
+            if len(content) > 1500:
+                content = content[:1500] + "\n...[TRUNCATED]..."
+
+            print(content)
+
+        # Human/System
+        else:
+            print(latest.content)
+
+    print("\n===========================================\n")
+
+    final_answer = extract_final_answer(final_messages)
+
+    print("[FINAL ANSWER]")
+    print(final_answer)
+
     return final_answer
 
 # test
