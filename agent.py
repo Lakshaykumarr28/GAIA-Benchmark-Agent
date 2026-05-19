@@ -12,7 +12,7 @@ from langgraph.graph.message import add_messages
 from langchain.agents import create_agent
 from langchain_core.tools import tool
 from typing import TypedDict, Annotated
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_groq import ChatGroq
 from langchain_community.tools.tavily_search import TavilySearchResults
 from langchain_community.document_loaders import PyPDFLoader
 import pandas as pd
@@ -123,10 +123,10 @@ def build_graph():
 
     # llm = ChatOpenAI(model_name="gpt-5-nano", temperature=0)
 
-    llm = ChatGoogleGenerativeAI(
-        model="gemini-2.5-flash",
+    llm = ChatGroq(
+        model="llama-3.1-8b-instant",
         temperature=0,
-        google_api_key=GOOGLE_API_KEY
+        groq_api_key=GROQ_API_KEY
     )
 
 
