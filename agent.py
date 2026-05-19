@@ -56,7 +56,7 @@ def web_search(query: str) -> str:
     
     Args:
         query: The search query."""
-    search_docs = TavilySearchResults(tavily_api_key=tavily_api_key, max_results=3).invoke(query)
+    search_docs = TavilySearchResults(tavily_api_key=TAVILY_API_KEY, max_results=3).invoke(query)
     formatted_search_docs = "\n\n---\n\n".join(
         [
             f'<Document source="{doc["title"]}" page="{doc["url"]}"/>\n{doc["content"]}\n</Document>'
