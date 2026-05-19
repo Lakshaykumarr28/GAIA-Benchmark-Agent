@@ -534,8 +534,8 @@ def build_graph(question: str):
 
     chat_with_tools = llm.bind_tools(
         tools,
-        parallel_tool_calls=False,
-        tool_choice="auto"
+        # parallel_tool_calls=False,
+        # tool_choice="auto"
     )
 
     class AgentState(TypedDict):
