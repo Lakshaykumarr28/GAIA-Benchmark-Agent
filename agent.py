@@ -35,7 +35,7 @@ HF_TOKEN = os.getenv("HF_TOKEN")
 
 tavily = TavilySearch(
     # tavily_api_key=TAVILY_API_KEY,
-    max_results=3,
+    max_results=1,
     topic="general",
 )
 
@@ -178,7 +178,7 @@ def web_search(query: str) -> str:
 
             title = doc.get("title", "Unknown")
             url = doc.get("url", "")
-            content = doc.get("content", "")[:1000]
+            content = doc.get("content", "")[:500]
 
             formatted.append(
                 f"Title: {title}\n"
@@ -223,7 +223,7 @@ def read_pdf(path: str) -> str:
 
         return "\n".join(
             p.page_content for p in pages[:5]
-        )[:5000]
+        )[:1000]
 
     except Exception as e:
         return f"PDF read error: {str(e)}"
@@ -257,7 +257,7 @@ def read_excel(path: str) -> str:
         if df.empty:
             return "Error: empty Excel file."
 
-        return df.head(10).to_string()[:5000]
+        return df.head(10).to_string()[:1000]
 
     except Exception as e:
         return f"Excel read error: {str(e)}"
@@ -291,7 +291,7 @@ def read_csv(path: str) -> str:
         if df.empty:
             return "Error: empty CSV file."
 
-        return df.head(10).to_string()[:5000]
+        return df.head(10).to_string()[:1000]
 
     except Exception as e:
         return f"CSV read error: {str(e)}"
@@ -328,7 +328,7 @@ def read_word(path: str) -> str:
         if not text:
             return "Error: empty Word document."
 
-        return text[:5000]
+        return text[:1000]
 
     except Exception as e:
         return f"Word read error: {str(e)}"
@@ -370,7 +370,7 @@ def ocr_image(path: str) -> str:
         if not text:
             return "No text detected in image."
 
-        return text[:5000]
+        return text[:1000]
 
     except Exception as e:
         return f"OCR error: {str(e)}"
@@ -422,7 +422,7 @@ def speech_to_text(path: str) -> str:
         if not text:
             return "No speech detected."
 
-        return text[:5000]
+        return text[:1000]
 
     except Exception as e:
         return f"Speech-to-text error: {str(e)}"
@@ -453,7 +453,8 @@ def build_graph():
     # llm = ChatOpenAI(model_name="gpt-5-nano", temperature=0)
 
     llm = ChatGroq(
-        model="qwen/qwen3-32b",
+        model="llama-3.3-70b-versatile",
+        max_tokens=128,
         temperature=0,
         groq_api_key=GROQ_API_KEY
     )
@@ -599,6 +600,8 @@ def run_agent(question: str) -> str:
         {"role": "user", "content": question_processed},
     ]
 
+    messages = messages[-6:]
+
     print("\n================ AGENT RUN ================\n")
 
     final_messages = None
@@ -606,7 +609,7 @@ def run_agent(question: str) -> str:
     for event in graph.stream(
         {"messages": messages},
         stream_mode="values",
-        # config={"recursion_limit": 5}
+        config={"recursion_limit": 3}
     ):
 
         final_messages = event["messages"]
