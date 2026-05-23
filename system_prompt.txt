@@ -12,6 +12,14 @@ Rules:
 - For tables or datasets, compute answers directly from data.
 - Do NOT use tools when the answer can be directly inferred from the question itself.
 - Do NOT invent fake file paths.
+- If a tool returns useful information,
+   you MUST answer the user's question.
+- NEVER output:
+   FINAL ANSWER: unknown
+   unless the answer truly cannot be found.
+- For transcript/video dialogue questions:
+- If the transcript clearly contains a direct reply, return the reply directly.
+
 - If evidence is missing, unclear, or conflicting, output:
 FINAL ANSWER: unknown
 

@@ -28,6 +28,7 @@ import re
 import whisper
 from youtube_transcript_api import YouTubeTranscriptApi
 from urllib.parse import urlparse, parse_qs
+from pprint import pprint
 
 load_dotenv()
 
@@ -431,43 +432,35 @@ def speech_to_text(path: str) -> str:
     
 
 
-
 @tool
-def get_youtube_transcript(video_url: str) -> str:
+def get_youtube_transcript(video_url: str, search_query: str = "") -> str:
     """
-    Fetch YouTube video transcript for answering questions.
+    Extract the spoken transcript from a YouTube video.
 
-    USE THIS TOOL FOR:
-    - understanding YouTube videos
-    - extracting spoken content
-    - summarizing videos
-    - answering questions about a video
-    - tutorials
-    - lectures
-    - podcasts
+    USE THIS TOOL WHEN:
+    - user asks questions about a YouTube video's content
+    - user provides a YouTube URL
+    - user asks what someone said in a video
+    - user asks for quotes/dialogue from a video
+    - user asks to summarize a YouTube video
 
-    DO NOT USE THIS TOOL FOR:
-    - non-YouTube URLs
-    - general web search
-    - videos without speech
-    - private videos
+    VERY IMPORTANT:
+    If the question contains a YouTube URL,
+    this tool should usually be called FIRST.
 
     Input:
-        video_url: full YouTube video URL
+        Full YouTube URL
 
     Returns:
-        transcript text from the video
+        Transcript text from the video
     """
 
     try:
 
-        # validate url
         if "youtube.com" not in video_url and "youtu.be" not in video_url:
             return "Invalid YouTube URL."
 
-        # extract video id
-        video_id = None
-
+        # Extract video ID
         if "youtu.be" in video_url:
             video_id = video_url.split("/")[-1].split("?")[0]
 
@@ -478,26 +471,31 @@ def get_youtube_transcript(video_url: str) -> str:
         if not video_id:
             return "Could not extract video ID."
 
-        # fetch transcript
-        transcript = YouTubeTranscriptApi.get_transcript(video_id)
+        # NEW API
+        ytt_api = YouTubeTranscriptApi()
 
-        if not transcript:
-            return "No transcript available."
+        fetched_transcript = ytt_api.fetch(video_id)
 
-        # combine transcript
-        full_text = " ".join(
-            chunk["text"]
-            for chunk in transcript
+        transcript_text = " ".join(
+            snippet.text
+            for snippet in fetched_transcript.snippets
         )
 
-        # limit size
-        full_text = full_text[:12000]
+        if not transcript_text.strip():
+            return "No transcript available."
+        
+        if search_query:
+            idx = transcript_text.lower().find(search_query.lower())
 
-        return full_text
+            if idx != -1:
+                return transcript_text[
+                    max(0, idx - 300): idx + 500
+                ]
+
+        return transcript_text[:12000]
 
     except Exception as e:
         return f"Transcript error: {str(e)}"
-
 
 
 # load the system prompt from the file
@@ -539,29 +537,33 @@ def get_tools(question: str):
 
     q = question.lower()
 
-    selected_tools = [ALL_TOOLS["web_search"], ALL_TOOLS["wiki_search"], ALL_TOOLS["calculator"]]
+    selected_tools = [
+        # ALL_TOOLS["web_search"], 
+        # ALL_TOOLS["wiki_search"], 
+        ALL_TOOLS["calculator"]
+    ]
 
     # # always useful
     # selected_tools.append(ALL_TOOLS["calculator"])
 
-    # # web / factual questions
-    # web_keywords = [
-    #     "who",
-    #     "when",
-    #     "where",
-    #     "latest",
-    #     "news",
-    #     "movie",
-    #     "president",
-    #     "capital",
-    #     "highest grossing",
-    #     "company",
-    #     "history",
-    # ]
+    # web / factual questions
+    web_keywords = [
+        "who",
+        "when",
+        "where",
+        "latest",
+        "news",
+        "movie",
+        "president",
+        "capital",
+        "highest grossing",
+        "company",
+        "history",
+    ]
 
-    # if any(k in q for k in web_keywords):
-    #     selected_tools.append(ALL_TOOLS["web_search"])
-    #     selected_tools.append(ALL_TOOLS["wiki_search"])
+    if any(k in q for k in web_keywords):
+        selected_tools.append(ALL_TOOLS["web_search"])
+        selected_tools.append(ALL_TOOLS["wiki_search"])
 
     # pdf
     if ".pdf" in q:
@@ -603,12 +605,12 @@ def get_tools(question: str):
 def build_graph(question: str):
 
     tools = get_tools(question)
-    print(f'Tools fetched: {tools}')
+    pprint(f'Tools fetched: {tools}')
 
     llm = ChatGroq(
         model="qwen/qwen3-32b",
         temperature=0,
-        max_tokens=128,
+        max_tokens=512,
         groq_api_key=GROQ_API_KEY
     )
 
@@ -623,7 +625,22 @@ def build_graph(question: str):
 
     def assistant(state: AgentState):
 
-        response = chat_with_tools.invoke(state["messages"])
+        messages = state["messages"]
+
+        # Encourage answering after tools
+        if messages and getattr(messages[-1], "type", "") == "tool":
+
+            messages = messages + [
+                SystemMessage(
+                    content=(
+                        "The tool result contains the information needed. "
+                        "Answer the user's question directly using:\n"
+                        "FINAL ANSWER: <answer>"
+                    )
+                )
+            ]
+
+        response = chat_with_tools.invoke(messages)
 
         return {
             "messages": [response]
@@ -684,44 +701,65 @@ def extract_final_answer(messages):
     return "unknown"
 
 
-def is_reversed_question(text: str, threshold: float = 0.6):
+
+def is_reversed_question(text: str, threshold: float = 0.3):
     """
-    Detect whether a sentence is likely reversed.
+    Detect reversed English text.
 
     Returns:
         (is_reversed: bool, corrected_text: str)
     """
 
-    # common English words
-    common_words = {
-        "the", "is", "are", "if", "you", "can",
-        "what", "where", "when", "why", "how",
-        "question", "answer", "give", "read",
-        "this", "that", "and", "or", "to"
+    print("Inside reversed question function.")
+
+    COMMON_WORDS = {
+        "the", "be", "to", "of", "and", "a", "in", "that",
+        "have", "i", "it", "for", "not", "on", "with",
+        "he", "as", "you", "do", "at", "this", "but",
+        "his", "by", "from", "they", "we", "say", "her",
+        "she", "or", "an", "will", "my", "one", "all",
+        "would", "there", "their", "what", "so", "up",
+        "out", "if", "about", "who", "get", "which",
+        "go", "me", "when", "make", "can", "like",
+        "time", "no", "just", "him", "know", "take",
+        "people", "into", "year", "your", "good",
+        "some", "could", "them", "see", "other",
+        "than", "then", "now", "look", "only", "come",
+        "its", "over", "think", "also", "back", "after",
+        "use", "two", "how", "our", "work", "first",
+        "well", "way", "even", "new", "want", "because",
+        "any", "these", "give", "day", "most", "us",
+        "question", "answer", "read", "sentence",
+        "understand", "write", "word", "opposite",
+        "left", "right"
     }
 
-    # tokenize original
-    words = re.findall(r"\b\w+\b", text.lower())
+    def score_english(sentence: str):
 
-    if not words:
-        return False, text
+        words = re.findall(r"\b[a-zA-Z]+\b", sentence.lower())
 
-    # tokenize reversed text
+        if not words:
+            return 0
+
+        matches = sum(word in COMMON_WORDS for word in words)
+
+        return matches / len(words)
+
     reversed_text = text[::-1]
-    reversed_words = re.findall(r"\b\w+\b", reversed_text.lower())
 
-    # score both
-    original_score = sum(w in common_words for w in words)
-    reversed_score = sum(w in common_words for w in reversed_words)
+    original_score = score_english(text)
+    reversed_score = score_english(reversed_text)
 
-    # normalize
-    original_ratio = original_score / max(len(words), 1)
-    reversed_ratio = reversed_score / max(len(reversed_words), 1)
+    print(f"Original score: {original_score}")
+    print(f"Reversed score: {reversed_score}")
 
-    if reversed_ratio > original_ratio and reversed_ratio >= threshold:
+    if reversed_score > original_score and reversed_score >= threshold:
+        print("Reverse text found")
         return True, reversed_text
 
+    print("No reverse text found")
     return False, text
+
 
 # def run_agent(question: str) -> str:
 #     """
@@ -760,7 +798,7 @@ def run_agent(question: str) -> str:
         {"role": "user", "content": question_processed},
     ]
 
-    messages = messages[-6:]
+    # messages = messages[-6:]
 
     print("\n================ AGENT RUN ================\n")
 
