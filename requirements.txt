@@ -27,6 +27,8 @@ wikipedia>=1.4.0
 openai-whisper
 torch
 ffmpeg-python
+youtube-transcript-api>=0.6.2
+yt-dlp>=2025.1.0
 
 # Vector DB / Embeddings
 faiss-cpu>=1.8.0

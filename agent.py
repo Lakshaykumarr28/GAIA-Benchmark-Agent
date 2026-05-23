@@ -26,6 +26,8 @@ from requests.exceptions import RequestException
 from json.decoder import JSONDecodeError
 import re
 import whisper
+from youtube_transcript_api import YouTubeTranscriptApi
+from urllib.parse import urlparse, parse_qs
 
 load_dotenv()
 
@@ -426,6 +428,76 @@ def speech_to_text(path: str) -> str:
 
     except Exception as e:
         return f"Speech-to-text error: {str(e)}"
+    
+
+
+
+@tool
+def get_youtube_transcript(video_url: str) -> str:
+    """
+    Fetch YouTube video transcript for answering questions.
+
+    USE THIS TOOL FOR:
+    - understanding YouTube videos
+    - extracting spoken content
+    - summarizing videos
+    - answering questions about a video
+    - tutorials
+    - lectures
+    - podcasts
+
+    DO NOT USE THIS TOOL FOR:
+    - non-YouTube URLs
+    - general web search
+    - videos without speech
+    - private videos
+
+    Input:
+        video_url: full YouTube video URL
+
+    Returns:
+        transcript text from the video
+    """
+
+    try:
+
+        # validate url
+        if "youtube.com" not in video_url and "youtu.be" not in video_url:
+            return "Invalid YouTube URL."
+
+        # extract video id
+        video_id = None
+
+        if "youtu.be" in video_url:
+            video_id = video_url.split("/")[-1].split("?")[0]
+
+        else:
+            parsed_url = urlparse(video_url)
+            video_id = parse_qs(parsed_url.query).get("v", [None])[0]
+
+        if not video_id:
+            return "Could not extract video ID."
+
+        # fetch transcript
+        transcript = YouTubeTranscriptApi.get_transcript(video_id)
+
+        if not transcript:
+            return "No transcript available."
+
+        # combine transcript
+        full_text = " ".join(
+            chunk["text"]
+            for chunk in transcript
+        )
+
+        # limit size
+        full_text = full_text[:12000]
+
+        return full_text
+
+    except Exception as e:
+        return f"Transcript error: {str(e)}"
+
 
 
 # load the system prompt from the file
@@ -445,6 +517,7 @@ sys_msg = SystemMessage(system_prompt)
 #     read_word,
 #     ocr_image,
 #     speech_to_text,
+#     get_youtube_transcript,
 # ]
 
 
@@ -458,6 +531,7 @@ ALL_TOOLS = {
     "read_word": read_word,
     "ocr_image": ocr_image,
     "speech_to_text": speech_to_text,
+    "get_youtube_transcript": get_youtube_transcript,
 }
 
 
@@ -517,6 +591,11 @@ def get_tools(question: str):
     if any(ext in q for ext in audio_exts):
         selected_tools.append(ALL_TOOLS["speech_to_text"])
 
+    # youtube transcript
+    youtube_links = ["youtube.com", "youtu.be"]
+    if any(links in q for links in youtube_links):
+        selected_tools.append(ALL_TOOLS["get_youtube_transcript"])
+
     return selected_tools
 
 
@@ -524,6 +603,7 @@ def get_tools(question: str):
 def build_graph(question: str):
 
     tools = get_tools(question)
+    print(f'Tools fetched: {tools}')
 
     llm = ChatGroq(
         model="qwen/qwen3-32b",
@@ -535,7 +615,7 @@ def build_graph(question: str):
     chat_with_tools = llm.bind_tools(
         tools,
         # parallel_tool_calls=False,
-        # tool_choice="auto"
+        tool_choice="auto"
     )
 
     class AgentState(TypedDict):
