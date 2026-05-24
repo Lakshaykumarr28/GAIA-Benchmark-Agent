@@ -822,7 +822,7 @@ def run_agent(question: str) -> str:
     for event in graph.stream(
         {"messages": messages},
         stream_mode="values",
-        config={"recursion_limit": 5}
+        config={"recursion_limit": 15}
     ):
 
         final_messages = event["messages"]
