@@ -608,7 +608,8 @@ def build_graph(question: str):
     pprint(f'Tools fetched: {tools}')
 
     llm = ChatGroq(
-        model="qwen/qwen3-32b",
+        # model="qwen/qwen3-32b",
+        model='openai/gpt-oss-20b',
         temperature=0,
         max_tokens=512,
         groq_api_key=GROQ_API_KEY
